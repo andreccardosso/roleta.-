@@ -129,6 +129,24 @@ th{font:600 11px var(--f-head);text-transform:uppercase;letter-spacing:.07em;col
   </section>
 
   <section class="card">
+    <h2>Referência dos sensores e do Y</h2>
+    <p class="note">Marque na imagem a luz do sensor inferior. O aplicativo só reconhece a mudança de verde para laranja quando a área marcada estiver visível na câmera.</p>
+    <div class="row" style="margin-top:10px">
+      <button id="btnSensorMark" type="button">Marcar luz do sensor inferior</button>
+      <button id="btnSideA" type="button" aria-pressed="false">Lançamento no lado A</button>
+      <button id="btnSideB" type="button" aria-pressed="false">Lançamento no lado B</button>
+    </div>
+    <p class="guide" id="sensorGuide" aria-live="polite">Marque a luz inferior na imagem e selecione o lado A ou B do Y. A marcação é visual; não representa conexão elétrica com o sensor físico.</p>
+    <div class="metrics" style="margin-top:10px">
+      <div class="m"><span>Luz reconhecida</span><b id="sensorColor" style="font-size:16px">não marcada</b></div>
+      <div class="m"><span>Giros observados</span><b id="sensorRounds">0/2</b></div>
+      <div class="m"><span>Validação</span><b id="sensorGate" style="font-size:16px">bloqueada</b></div>
+      <div class="m"><span>Região Y</span><b id="sensorRegion" style="font-size:16px">—</b></div>
+    </div>
+    <p class="qual warn" id="sensorStatus">Sem indicação durante as duas primeiras rodadas de observação.</p>
+  </section>
+
+  <section class="card">
     <h2>Zona provável</h2>
     <div id="predEmpty" class="qual" style="margin:0">Aguardando lançamento. A estimativa aparece depois de duas ou três voltas da bolinha.</div>
     <div id="predBox" hidden>
@@ -407,7 +425,8 @@ document.body.appendChild(vid);
 var LAB=['ESQUERDA','DIREITA','de CIMA','de BAIXO'];
 var REDS={1:1,3:1,5:1,7:1,9:1,12:1,14:1,16:1,18:1,19:1,21:1,23:1,25:1,27:1,30:1,32:1,34:1,36:1};
 var S={mode:null,calStep:0,taps:[],cal:null,photoCalNorm:null,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null,
-  auto:true,det:null,fr:null,good:[],prop:null,said:'',saidAt:0,drag:null};
+  auto:true,det:null,fr:null,good:[],prop:null,said:'',saidAt:0,drag:null,
+  sensorROI:null,sensorMark:false,sensorColor:'unknown',sensorPrev:null,sensorRounds:0,sensorTransitionSeen:false,sensorValidated:false,ySide:null};
 var photoImg=null;
 var dcv=document.createElement('canvas'),dctx=dcv.getContext('2d',{willReadFrequently:true});
 var hist=(function(){try{var j=JSON.parse(localStorage.getItem('rr-hist-v1')||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
@@ -470,6 +489,52 @@ async function useCam(){
   }
 }
 $('btnCam').addEventListener('click',useCam);
+$('btnSensorMark').addEventListener('click',function(){
+  if(!S.mode){$('sensorGuide').textContent='Primeiro abra a câmera ou carregue um vídeo da roleta.';return;}
+  S.sensorMark=true;$('sensorGuide').textContent='Toque exatamente no centro da luz do sensor inferior na imagem.';
+});
+function setYSide(side){
+  S.ySide=side;
+  $('btnSideA').setAttribute('aria-pressed',side==='A'?'true':'false');
+  $('btnSideB').setAttribute('aria-pressed',side==='B'?'true':'false');
+  $('sensorRegion').textContent=side==='A'?'C · direita':'C · esquerda';
+  updateSensorUI();
+}
+$('btnSideA').addEventListener('click',function(){setYSide('A');});
+$('btnSideB').addEventListener('click',function(){setYSide('B');});
+function sampleSensor(){
+  if(!S.sensorROI||!view.width||!view.height)return 'unknown';
+  var q=S.sensorROI,x=Math.max(0,Math.min(view.width-1,Math.round(q.x*view.width))),
+      y=Math.max(0,Math.min(view.height-1,Math.round(q.y*view.height))),
+      rr=Math.max(2,Math.round(q.r*view.width)),x0=Math.max(0,x-rr),y0=Math.max(0,y-rr),
+      ww=Math.min(view.width-x0,rr*2+1),hh=Math.min(view.height-y0,rr*2+1),d;
+  try{d=vctx.getImageData(x0,y0,ww,hh).data;}catch(e){return 'unknown';}
+  var r=0,g=0,b=0,n=0;
+  for(var i=0;i<d.length;i+=4){r+=d[i];g+=d[i+1];b+=d[i+2];n++;}
+  if(!n)return 'unknown';r/=n;g/=n;b/=n;
+  if(g>65&&g>r*1.12&&g>b*1.08)return 'green';
+  if(r>75&&r>g*1.12&&g>b*1.04)return 'orange';
+  return 'unknown';
+}
+function updateSensorUI(){
+  $('sensorColor').textContent=S.sensorColor==='green'?'verde':(S.sensorColor==='orange'?'laranja':(S.sensorROI?'não identificado':'não marcada'));
+  $('sensorRounds').textContent=Math.min(S.sensorRounds,2)+'/2';
+  $('sensorGate').textContent=S.sensorValidated?'validado':'bloqueada';
+  $('sensorStatus').textContent=S.sensorRounds<2?'Observação '+(S.sensorRounds+1)+' de 2: nenhuma indicação será liberada.':
+    (S.sensorValidated?'Mudança verde → laranja reconhecida. Referência Y liberada para análise.':'Aguardando mudança confirmada de verde para laranja.');
+}
+function processSensor(){
+  if(!S.sensorROI)return;
+  var color=sampleSensor();
+  if(color!=='unknown'){
+    if(S.sensorPrev==='green'&&color==='orange'){
+      S.sensorTransitionSeen=true;
+      if(S.sensorRounds>=2&&S.ySide)S.sensorValidated=true;
+    }
+    S.sensorPrev=color;S.sensorColor=color;
+  }
+  updateSensorUI();
+}
 function onPick(e){
   var f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;
   msg('');stopSource();
@@ -482,9 +547,16 @@ vid.addEventListener('seeked',function(){if(vid.paused)drawFrame();});
 vid.addEventListener('ended',function(){if(S.running){stop();msg('O vídeo terminou.');}});
 
 view.addEventListener('pointerdown',function(e){
-  if(!S.mode||S.running||S.auto)return;
+  if(!S.mode)return;
   var r=view.getBoundingClientRect();
   var x=(e.clientX-r.left)*view.width/r.width,y=(e.clientY-r.top)*view.height/r.height;
+  if(S.sensorMark){
+    S.sensorROI={x:x/view.width,y:y/view.height,r:Math.max(5,view.width*0.018)/view.width};
+    S.sensorMark=false;msg('Área da luz marcada. Inicie o rastreio e mantenha o indicador visível.');
+    $('sensorGuide').textContent='Área marcada. Confira se o quadrado está sobre a luz do sensor inferior.';
+    ui();if(S.mode==='file'&&vid.paused)drawFrame();return;
+  }
+  if(S.running||S.auto)return;
   if(S.cal&&S.calStep>=4){
     var c=S.cal,hit=Math.max(14,view.width*0.035),handles=[['left',c.cx-c.rx,c.cy],['right',c.cx+c.rx,c.cy],['top',c.cx,c.cy-c.ry],['bottom',c.cx,c.cy+c.ry]],type='move',best=hit;
     for(var hi=0;hi<handles.length;hi++){var hd=handles[hi],dist=Math.hypot(x-hd[1],y-hd[2]);if(dist<best){best=dist;type=hd[0];}}
@@ -539,6 +611,7 @@ $('thr').addEventListener('input',function(){S.thr=+this.value;$('thrv').textCon
 $('mirror').addEventListener('change',function(){S.mirror=this.checked;if(S.eng)S.eng.mirror=S.mirror;});
 
 function start(){
+  S.sensorRounds=0;S.sensorTransitionSeen=false;S.sensorValidated=false;S.sensorPrev=null;S.sensorColor='unknown';
   if(S.mode==='photo'){msg('A foto serve para calibrar. Agora abra a câmera para conferir a marcação e iniciar o rastreio.');return;}
   if(!S.cal)return;
   S.eng=new Engine(view.width,view.height,S.cal,{thr:S.thr,mirror:S.mirror,hist:hist,onEnd:onEnd});
@@ -556,7 +629,12 @@ $('btnStart').addEventListener('click',start);
 $('btnStop').addEventListener('click',stop);
 $('btnClear').addEventListener('click',function(){hist.spins=[];hist.crit=[];S.last=null;save();renderHist();ui();});
 
-function onEnd(e){S.last=e;save();renderHist();ui();}
+function onEnd(e){
+  S.last=e;S.sensorRounds++;
+  if(S.sensorRounds<=2)S.sensorValidated=false;
+  S.sensorTransitionSeen=false;
+  save();renderHist();ui();updateSensorUI();
+}
 
 function loop(){
   if(S.loopOn)return;S.loopOn=true;
@@ -577,6 +655,7 @@ function onFrame(t){
     var img=vctx.getImageData(0,0,view.width,view.height).data;
     S.info=S.eng.frame(img,t);
   }
+  if(S.running)processSensor();
   overlay();
   var nowMs=performance.now();
   if(nowMs-S.lastUI>120){S.lastUI=nowMs;live();}
@@ -612,8 +691,16 @@ function overlay(){
       g.moveTo(px+dx*s,py+dy*s);g.lineTo(px-dx*s*0.2-dy*s*0.9,py-dy*s*0.2-dx*s*0.9);g.lineTo(px-dx*s*0.2+dy*s*0.9,py-dy*s*0.2+dx*s*0.9);g.closePath();g.fill();g.stroke();
     }
   }
+  if(S.sensorMark){
+    g.fillStyle='rgba(255,255,255,.95)';g.font='600 13px sans-serif';g.fillText('Toque na luz do sensor inferior',10,22);
+  }
   g.fillStyle='#ffcc33';g.strokeStyle='#000';
   S.taps.forEach(function(p){g.beginPath();g.arc(p[0],p[1],5,0,Math.PI*2);g.fill();g.stroke();});
+  if(S.sensorROI){
+    var sx=S.sensorROI.x*view.width,sy=S.sensorROI.y*view.height,sr=S.sensorROI.r*view.width;
+    g.strokeStyle=S.sensorColor==='green'?'#28d17c':(S.sensorColor==='orange'?'#ff9b32':'#ffffff');
+    g.lineWidth=Math.max(2,view.width/250);g.strokeRect(sx-sr,sy-sr,sr*2,sr*2);
+  }
   if(S.cal&&S.info){
     var c2=S.cal,i=S.info;
     if(i.zero){var zx=c2.cx+c2.rx*0.65*Math.cos(i.zero.raw),zy=c2.cy+c2.ry*0.65*Math.sin(i.zero.raw);g.strokeStyle='#19e0b4';g.lineWidth=2.5;g.beginPath();g.arc(zx,zy,8,0,Math.PI*2);g.stroke();}
@@ -679,7 +766,9 @@ function live(){
   $('rPhase').textContent=ph;
   var p=i&&i.pred;
   $('rEta').innerHTML=(p&&i.phase==='pista')?'queda em ~'+Math.max(0,(p.D-(i.t-p.t))).toFixed(1)+' s':'&nbsp;';
-  renderPred(p,i&&i.dropped);
+  var allowed=S.sensorRounds>=2&&S.sensorValidated&&!!S.ySide;
+  renderPred(allowed?p:null,i&&i.dropped);
+  updateSensorUI();
 }
 function chip(n,mid){return '<div class="chip '+cls(n)+(mid?' mid':'')+'">'+n+'</div>';}
 function renderPred(p,frozen){
@@ -694,6 +783,7 @@ function renderPred(p,frozen){
     $('zone').innerHTML=h;
   }
   var q=$('qual');
+  if(!p){q.className='qual warn';q.textContent=S.sensorRounds<2?'Observação inicial: aguardando completar duas rodadas, sem indicação.':(!S.sensorROI?'Marque a luz do sensor inferior para reconhecer a mudança de cor.':(!S.ySide?'Selecione o lado A ou B do Y.':'Aguardando mudança do sensor de verde para laranja.'));return;}
   if(!mdl.ready){q.className='qual warn';q.textContent='Aprendendo: '+mdl.n+' de 5 giros completos medidos. Até lá a zona é larga e sem ajuste.';}
   else if(mdl.R<0.35){q.className='qual warn';q.textContent='Com '+mdl.n+' giros, o erro está muito espalhado. A estimativa ainda não passa de palpite.';}
   else{q.className='qual good';q.textContent='Com '+mdl.n+' giros, o erro está concentrado (índice '+mdl.R.toFixed(2)+'). A zona foi ajustada por esses giros.';}
