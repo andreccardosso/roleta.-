@@ -405,7 +405,7 @@ document.body.appendChild(vid);
 var LAB=['ESQUERDA','DIREITA','de CIMA','de BAIXO'];
 var REDS={1:1,3:1,5:1,7:1,9:1,12:1,14:1,16:1,18:1,19:1,21:1,23:1,25:1,27:1,30:1,32:1,34:1,36:1};
 var S={mode:null,calStep:0,taps:[],cal:null,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null,
-  auto:true,det:null,fr:null,good:[],prop:null,said:'',saidAt:0};
+  auto:true,det:null,fr:null,good:[],prop:null,said:'',saidAt:0,drag:null};
 var dcv=document.createElement('canvas'),dctx=dcv.getContext('2d',{willReadFrequently:true});
 var hist=(function(){try{var j=JSON.parse(localStorage.getItem('rr-hist-v1')||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
 function save(){try{localStorage.setItem('rr-hist-v1',JSON.stringify(hist));}catch(e){}}
@@ -454,9 +454,18 @@ vid.addEventListener('seeked',function(){if(vid.paused)drawFrame();});
 vid.addEventListener('ended',function(){if(S.running){stop();msg('O vídeo terminou.');}});
 
 view.addEventListener('pointerdown',function(e){
-  if(!S.mode||S.running||S.auto||S.calStep>=4)return;
+  if(!S.mode||S.running||S.auto)return;
   var r=view.getBoundingClientRect();
   var x=(e.clientX-r.left)*view.width/r.width,y=(e.clientY-r.top)*view.height/r.height;
+  if(S.cal&&S.calStep>=4){
+    var c=S.cal,hit=Math.max(14,view.width*0.035),handles=[['left',c.cx-c.rx,c.cy],['right',c.cx+c.rx,c.cy],['top',c.cx,c.cy-c.ry],['bottom',c.cx,c.cy+c.ry]],type='move',best=hit;
+    for(var hi=0;hi<handles.length;hi++){var hd=handles[hi],dist=Math.hypot(x-hd[1],y-hd[2]);if(dist<best){best=dist;type=hd[0];}}
+    if(type==='move'&&Math.hypot((x-c.cx)/c.rx,(y-c.cy)/c.ry)>1.08)return;
+    S.drag={type:type,x:x,y:y,cal:{cx:c.cx,cy:c.cy,rx:c.rx,ry:c.ry}};
+    try{view.setPointerCapture(e.pointerId);}catch(ex){}
+    e.preventDefault();return;
+  }
+  if(S.calStep>=4)return;
   S.taps.push([x,y]);S.calStep++;
   if(S.calStep===4){
     var L=S.taps[0],R=S.taps[1],T=S.taps[2],B=S.taps[3];
@@ -467,6 +476,19 @@ view.addEventListener('pointerdown',function(e){
   if(S.mode==='file'&&vid.paused)drawFrame();
   ui();
 });
+view.addEventListener('pointermove',function(e){
+  if(!S.drag||!S.cal)return;
+  var r=view.getBoundingClientRect(),x=(e.clientX-r.left)*view.width/r.width,y=(e.clientY-r.top)*view.height/r.height,d=S.drag,c=S.drag.cal,dx=x-d.x,dy=y-d.y;
+  if(d.type==='move'){S.cal.cx=c.cx+dx;S.cal.cy=c.cy+dy;}
+  else if(d.type==='left'){S.cal.cx=c.cx+dx/2;S.cal.rx=Math.max(12,c.rx-dx/2);}
+  else if(d.type==='right'){S.cal.cx=c.cx+dx/2;S.cal.rx=Math.max(12,c.rx+dx/2);}
+  else if(d.type==='top'){S.cal.cy=c.cy+dy/2;S.cal.ry=Math.max(10,c.ry-dy/2);}
+  else if(d.type==='bottom'){S.cal.cy=c.cy+dy/2;S.cal.ry=Math.max(10,c.ry+dy/2);}
+  e.preventDefault();
+});
+function endCalDrag(){S.drag=null;if(S.mode==='file'&&vid.paused)drawFrame();ui();}
+view.addEventListener('pointerup',endCalDrag);
+view.addEventListener('pointercancel',endCalDrag);
 $('btnRecal').addEventListener('click',function(){if(S.running)stop();S.calStep=0;S.taps=[];S.cal=null;resetAuto();say('Procurando a roda de novo.',true);if(S.mode==='file'&&vid.paused)drawFrame();ui();});
 $('btnManual').addEventListener('click',function(){S.auto=false;S.det=null;S.prop=null;S.calStep=0;S.taps=[];if(S.mode==='file'&&vid.paused)drawFrame();ui();});
 $('btnConfirm').addEventListener('click',function(){
@@ -477,9 +499,9 @@ $('btnConfirm').addEventListener('click',function(){
 });
 $('fine').addEventListener('click',function(e){
   var b=e.target.closest('button');if(!b||!S.cal)return;
-  var a=b.getAttribute('data-act'),c=S.cal,st=view.width*0.008;
+  var a=b.getAttribute('data-act'),c=S.cal,st=view.width*0.003;
   if(a==='l')c.cx-=st;else if(a==='r')c.cx+=st;else if(a==='u')c.cy-=st;else if(a==='d')c.cy+=st;
-  else if(a==='plus'){c.rx*=1.02;c.ry*=1.02;}else if(a==='minus'){c.rx/=1.02;c.ry/=1.02;}
+  else if(a==='plus'){c.rx*=1.01;c.ry*=1.01;}else if(a==='minus'){c.rx/=1.01;c.ry/=1.01;}
   if(S.mode==='file'&&vid.paused)drawFrame();
 });
 $('thr').addEventListener('input',function(){S.thr=+this.value;$('thrv').textContent=this.value;if(S.eng)S.eng.thr=S.thr;});
@@ -535,6 +557,12 @@ function overlay(){
     var c=S.cal,rings=[[1,'rgba(255,255,255,.9)',[]],[0.84,'rgba(255,255,255,.4)',[4,4]],[1.05,'rgba(255,255,255,.4)',[4,4]],[1.75,'rgba(255,200,90,.6)',[2,6]]];
     rings.forEach(function(q){g.strokeStyle=q[1];g.setLineDash(q[2]);ell(c.cx,c.cy,c.rx*q[0],c.ry*q[0]);});
     g.setLineDash([]);
+    if(!S.auto&&!S.running&&S.calStep>=4){
+      var hs=Math.max(5,view.width/90),pts=[[c.cx-c.rx,c.cy],[c.cx+c.rx,c.cy],[c.cx,c.cy-c.ry],[c.cx,c.cy+c.ry]];
+      g.setLineDash([]);g.lineWidth=Math.max(2,view.width/250);g.strokeStyle='#ffcc33';g.fillStyle='#ffcc33';
+      pts.forEach(function(p){g.beginPath();g.arc(p[0],p[1],hs,0,Math.PI*2);g.fill();g.strokeStyle='#111';g.stroke();g.strokeStyle='#ffcc33';});
+      g.strokeStyle='#19e0b4';g.lineWidth=Math.max(1,view.width/500);g.beginPath();g.moveTo(c.cx-8,c.cy);g.lineTo(c.cx+8,c.cy);g.moveTo(c.cx,c.cy-8);g.lineTo(c.cx,c.cy+8);g.stroke();
+    }
   }
   if(S.auto&&!S.cal){
     var d=S.det;
@@ -577,7 +605,7 @@ function ui(){
     else gd.innerHTML='<b>'+(S.fr?S.fr.text:'Procurando a roda.')+'</b>';
   }
   else if(S.calStep<4)gd.innerHTML='Calibração '+(S.calStep+1)+' de 4: toque na borda <b>'+LAB[S.calStep]+'</b> da roda (aro prateado, logo depois dos números).';
-  else if(!S.running)gd.innerHTML='Calibrado. Use o <b>ajuste fino</b> se a linha branca não estiver sobre o aro dos números, depois toque em <b>Iniciar rastreio</b>.';
+  else if(!S.running)gd.innerHTML='Calibrado. <b>Arraste o centro da marcação</b> para mover a roleta; arraste os quatro pontos amarelos para ajustar largura e altura. Também pode usar os botões de ajuste fino. Quando os anéis estiverem alinhados ao aro dos números, toque em <b>Iniciar rastreio</b>.';
   else gd.innerHTML='Rastreando. Círculo vermelho: bolinha. Círculo verde: zero da roda.';
   live();
 }
