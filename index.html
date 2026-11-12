@@ -92,6 +92,7 @@ th{font:600 11px var(--f-head);text-transform:uppercase;letter-spacing:.07em;col
       <button id="btnRecal" type="button" disabled>Refazer calibração</button>
     </div>
     <p class="guide" id="guide" aria-live="polite">Escolha a câmera (aponte para a tela da roleta) ou envie um vídeo gravado.</p>
+    <div class="row" style="margin-top:10px"><button id="btnYCal" type="button" disabled>Marcar sensores A, B e C</button></div>
     <div class="row" id="autoRow" style="margin-top:10px" hidden>
       <button id="btnConfirm" class="primary" type="button" disabled>Confirmar posição</button>
       <button id="btnManual" type="button">Calibrar manualmente</button>
@@ -427,7 +428,7 @@ var LAB=['ESQUERDA','DIREITA','de CIMA','de BAIXO'];
 var REDS={1:1,3:1,5:1,7:1,9:1,12:1,14:1,16:1,18:1,19:1,21:1,23:1,25:1,27:1,30:1,32:1,34:1,36:1};
 var S={mode:null,calStep:0,taps:[],cal:null,photoCalNorm:null,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null,
   auto:true,det:null,fr:null,good:[],prop:null,said:'',saidAt:0,drag:null,
-  sensorROI:null,sensorColor:'unknown',sensorPrev:null,sensorRounds:0,sensorTransitionSeen:false,sensorValidated:false,ySide:null,ballStartSide:null,sensorAngle:null};
+  sensorROI:null,sensorColor:'unknown',sensorPrev:null,sensorRounds:0,sensorTransitionSeen:false,sensorValidated:false,ySide:null,ballStartSide:null,sensorAngle:null,yCalStep:0,yPoints:[]};
 var photoImg=null;
 var dcv=document.createElement('canvas'),dctx=dcv.getContext('2d',{willReadFrequently:true});
 var hist=(function(){try{var j=JSON.parse(localStorage.getItem('rr-hist-v1')||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
@@ -490,8 +491,9 @@ async function useCam(){
   }
 }
 $('btnCam').addEventListener('click',useCam);
+$('btnYCal').addEventListener('click',function(){if(!S.mode||!view.width)return;if(S.running)stop();S.yCalStep=1;S.yPoints=[];S.ySide=null;S.sensorROI=null;S.sensorPrev=null;S.sensorValidated=false;$('sensorGuide').textContent='Marque na imagem A (ponta inferior), depois B (esquerda do crupiê) e C (direita do crupiê).';msg('Calibração do Y: toque nos sensores na ordem A, B e C.');});
 function autoFindSensor(){
-  if(S.sensorROI||!view.width||!view.height)return false;
+  if(S.ySide||S.sensorROI||!view.width||!view.height)return false;
   var d;
   try{d=vctx.getImageData(0,0,view.width,view.height).data;}catch(e){return false;}
   var sx=0,sy=0,n=0,minX=view.width,minY=view.height,maxX=0,maxY=0;
@@ -533,15 +535,14 @@ function updateSensorUI(){
     (S.sensorValidated?'Mudança verde → laranja detectada na luz candidata; aguardando confirmar que é o sensor inferior A.':'Luz candidata: aguardando confirmação visual de que corresponde ao sensor inferior A.');
 }
 function processSensor(){
-  if(!S.sensorROI)autoFindSensor();
+  if(!S.sensorROI&&S.ySide)S.sensorROI={x:S.ySide.A[0]/view.width,y:S.ySide.A[1]/view.height,r:Math.max(4,view.width*0.012)/view.width};
+  if(!S.sensorROI&&!S.ySide)autoFindSensor();
   if(!S.sensorROI){updateSensorUI();return;}
   var color=sampleSensor();
   if(color!=='unknown'){
     if(S.sensorPrev==='green'&&color==='orange'){
       S.sensorTransitionSeen=true;
-      // A ROI automática ainda pode localizar outra luz verde.
-      // Não validar como sensor inferior até a região A ser identificada com segurança.
-      S.sensorValidated=false;
+      if(S.ySide&&S.sensorRounds>=2)S.sensorValidated=true;
     }
     S.sensorPrev=color;S.sensorColor=color;
   }
@@ -562,6 +563,12 @@ view.addEventListener('pointerdown',function(e){
   if(!S.mode)return;
   var r=view.getBoundingClientRect();
   var x=(e.clientX-r.left)*view.width/r.width,y=(e.clientY-r.top)*view.height/r.height;
+  if(S.yCalStep>0){
+    S.yPoints.push([x,y]);S.yCalStep++;
+    if(S.yCalStep===4){var A=S.yPoints[0],B=S.yPoints[1],C=S.yPoints[2];S.ySide={A:A,B:B,C:C};S.sensorROI={x:A[0]/view.width,y:A[1]/view.height,r:Math.max(4,view.width*0.012)/view.width};S.sensorPrev=null;S.sensorColor='unknown';S.yCalStep=0;S.yPoints=[];$('sensorGuide').textContent='Y calibrado: A = sensor inferior; B = esquerda do crupiê; C = direita do crupiê.';}
+    else $('sensorGuide').textContent='Marque '+(['','A — ponta inferior','B — esquerda do crupiê','C — direita do crupiê'][S.yCalStep-1])+' na imagem.';
+    if(S.mode==='file'&&vid.paused)drawFrame();updateSensorUI();e.preventDefault();return;
+  }
   if(S.running||S.auto)return;
   if(S.cal&&S.calStep>=4){
     var c=S.cal,hit=Math.max(14,view.width*0.035),handles=[['left',c.cx-c.rx,c.cy],['right',c.cx+c.rx,c.cy],['top',c.cx,c.cy-c.ry],['bottom',c.cx,c.cy+c.ry]],type='move',best=hit;
@@ -637,14 +644,12 @@ $('btnStop').addEventListener('click',stop);
 $('btnClear').addEventListener('click',function(){hist.spins=[];hist.crit=[];S.last=null;save();renderHist();ui();});
 
 function onBallStart(bd){
-  // Não inferir B/C pela esquerda/direita da tela.
-  // A = ponta inferior do Y voltada para a frente do crupiê;
-  // B = esquerda do crupiê; C = direita do crupiê.
-  // Sem reconhecer a orientação física dos três braços na imagem,
-  // a posição B/C fica em espera para evitar uma classificação falsa.
   S.ballStartSide=null;
-  $('sensorGuide').textContent='Referência A/B/C definida. Aguardando reconhecimento visual da orientação do Y para classificar B ou C.';
-  updateSensorUI();
+  if(!S.ySide||!S.cal||!bd||!Number.isFinite(bd.ang)||!Number.isFinite(bd.rho)){$('sensorGuide').textContent='Marque primeiro A, B e C na imagem para orientar a leitura.';updateSensorUI();return;}
+  var px=S.cal.cx+S.cal.rx*bd.rho*Math.cos(bd.ang),py=S.cal.cy+S.cal.ry*bd.rho*Math.sin(bd.ang),B=S.ySide.B,C=S.ySide.C,dx=C[0]-B[0],dy=C[1]-B[1];
+  var side=dx*(py-S.ySide.A[1])-dy*(px-S.ySide.A[0]);
+  if(Math.abs(side)<Math.max(12,view.width*0.012)){$('sensorGuide').textContent='Bolinha alinhada ao eixo do Y; aguardando posição lateral B ou C.';updateSensorUI();return;}
+  S.ballStartSide=side>0?'B':'C';$('sensorGuide').textContent='Bolinha no lado '+S.ballStartSide+' conforme os pontos A, B e C calibrados.';updateSensorUI();
 }
 function onEnd(e){
   S.last=e;S.sensorRounds++;
@@ -709,6 +714,7 @@ function overlay(){
   }
   g.fillStyle='#ffcc33';g.strokeStyle='#000';
   S.taps.forEach(function(p){g.beginPath();g.arc(p[0],p[1],5,0,Math.PI*2);g.fill();g.stroke();});
+  if(S.ySide){[['A',S.ySide.A],['B',S.ySide.B],['C',S.ySide.C]].forEach(function(q){g.fillStyle='#19e0b4';g.strokeStyle='#000';g.lineWidth=2;g.beginPath();g.arc(q[1][0],q[1][1],7,0,Math.PI*2);g.fill();g.stroke();g.fillStyle='#fff';g.font='bold 13px sans-serif';g.fillText(q[0],q[1][0]+9,q[1][1]-8);});}
   if(S.sensorROI){
     var sx=S.sensorROI.x*view.width,sy=S.sensorROI.y*view.height,sr=S.sensorROI.r*view.width;
     g.strokeStyle=S.sensorColor==='green'?'#28d17c':(S.sensorColor==='orange'?'#ff9b32':'#ffffff');
@@ -725,6 +731,7 @@ function overlay(){
 function ui(){
   var has=!!S.mode,searching=has&&S.auto&&!S.cal;
   $('btnRecal').disabled=!has||(S.auto&&!S.cal);
+  $('btnYCal').disabled=!has||S.running;
   $('btnStart').disabled=!S.cal||S.running;
   $('btnStop').disabled=!S.running;
   $('autoRow').hidden=!searching;
