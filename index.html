@@ -505,7 +505,7 @@ function autoFindSensor(){
   if(n<4||bw>view.width*0.12||bh>view.height*0.18)return false;
   var cx=sx/n,cy=sy/n;
   S.sensorROI={x:cx/view.width,y:cy/view.height,r:Math.max(4,view.width*0.014)/view.width};
-  $('sensorGuide').textContent='Luz verde localizada automaticamente. Acompanhando o sensor e a partida da bolinha.';
+  $('sensorGuide').textContent='Luz verde candidata localizada. Ainda não confirmada como sensor inferior A.';
   return true;
 }
 function sampleSensor(){
@@ -530,7 +530,7 @@ function updateSensorUI(){
   $('ballStartSide').textContent=S.ballStartSide||'não identificada';
   $('ballOppositeSide').textContent='A · frente do crupiê';
   $('sensorStatus').textContent=S.sensorRounds<2?'Observação automática '+(S.sensorRounds+1)+' de 2: aguardando leitura do sensor inferior.':
-    (S.sensorValidated?'Mudança real do sensor inferior: verde → laranja, registrada para validação.':'Sensor inferior: aguardando mudança real de verde para laranja.');
+    (S.sensorValidated?'Mudança verde → laranja detectada na luz candidata; aguardando confirmar que é o sensor inferior A.':'Luz candidata: aguardando confirmação visual de que corresponde ao sensor inferior A.');
 }
 function processSensor(){
   if(!S.sensorROI)autoFindSensor();
@@ -539,7 +539,9 @@ function processSensor(){
   if(color!=='unknown'){
     if(S.sensorPrev==='green'&&color==='orange'){
       S.sensorTransitionSeen=true;
-      if(S.sensorRounds>=2)S.sensorValidated=true;
+      // A ROI automática ainda pode localizar outra luz verde.
+      // Não validar como sensor inferior até a região A ser identificada com segurança.
+      S.sensorValidated=false;
     }
     S.sensorPrev=color;S.sensorColor=color;
   }
@@ -635,18 +637,13 @@ $('btnStop').addEventListener('click',stop);
 $('btnClear').addEventListener('click',function(){hist.spins=[];hist.crit=[];S.last=null;save();renderHist();ui();});
 
 function onBallStart(bd){
+  // Não inferir B/C pela esquerda/direita da tela.
+  // A = ponta inferior do Y voltada para a frente do crupiê;
+  // B = esquerda do crupiê; C = direita do crupiê.
+  // Sem reconhecer a orientação física dos três braços na imagem,
+  // a posição B/C fica em espera para evitar uma classificação falsa.
   S.ballStartSide=null;
-  if(!S.cal||!bd||!Number.isFinite(bd.ang))return;
-  // A é a ponta inferior do Y, voltada para a frente do crupiê.
-  // Com A embaixo da imagem: esquerda = B e direita = C.
-  var xSide=Math.cos(bd.ang);
-  if(Math.abs(xSide)<0.08){
-    $('sensorGuide').textContent='Bolinha alinhada à referência A; aguardando posição lateral B ou C.';
-    updateSensorUI();return;
-  }
-  if(S.mirror)xSide=-xSide;
-  S.ballStartSide=xSide<0?'B':'C';
-  $('sensorGuide').textContent='Bolinha identificada no lado '+S.ballStartSide+' do Y. A permanece como referência à frente do crupiê.';
+  $('sensorGuide').textContent='Referência A/B/C definida. Aguardando reconhecimento visual da orientação do Y para classificar B ou C.';
   updateSensorUI();
 }
 function onEnd(e){
