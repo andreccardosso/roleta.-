@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101820"><title>Y Roulette Analyzer</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1117;--panel:#141e28;--panel2:#1b2935;--line:#2b3b49;--text:#edf3f7;--muted:#9aabb8;--accent:#e4b85d;--green:#20b879;--orange:#f39a38;--red:#dc514d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:980px;margin:auto;padding:18px 14px 40px}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}h1{font-size:23px;margin:0}h2{font-size:17px;margin:0 0 12px}.sub{color:var(--muted);font-size:13px;margin-top:4px}.tag{border:1px solid #806b3b;color:#f3d58d;border-radius:99px;padding:5px 9px;font-size:11px;white-space:nowrap}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.muted{color:var(--muted)}button,select,input{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}button{cursor:pointer;font-weight:650}button.primary{background:var(--accent);color:#211a0c;border:0}button:disabled{opacity:.45;cursor:not-allowed}select{min-width:0}label{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}.field{min-width:0;flex:1}video{display:block;width:100%;max-height:440px;object-fit:contain;background:#05080b;border-radius:12px}canvas#overlay{display:none}.videoWrap{position:relative}.videoHint{font-size:12px;color:var(--muted);margin-top:8px}.status{display:inline-flex;align-items:center;gap:7px;border-radius:99px;padding:7px 11px;background:var(--panel2);font-size:13px}.dot{width:10px;height:10px;border-radius:50%;background:#788896}.dot.green{background:var(--green);box-shadow:0 0 12px #20b87988}.dot.orange{background:var(--orange);box-shadow:0 0 12px #f39a3888}.dot.red{background:var(--red)}.big{font-size:30px;font-weight:800;letter-spacing:-1px}.result{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px}.numbers{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:12px}.pocket{padding:9px 2px;text-align:center;border-radius:9px;font-weight:800;border:2px solid transparent}.pocket small{display:block;font-size:9px;font-weight:600;opacity:.8}.pocket.main{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}.black{background:#202a32;color:white}.red{background:#c63b38;color:white}.zero{background:#13825f;color:white}.hint{font-size:12px;line-height:1.45;color:var(--muted)}.history{width:100%;border-collapse:collapse;font-size:13px}.history td,.history th{padding:8px 5px;border-bottom:1px solid var(--line);text-align:left}.history th{color:var(--muted);font-weight:600}.danger{color:#ff9a91}.ok{color:#6ee0ae}.hide{display:none!important}.calibration{font-size:12px;color:var(--muted)}.wheelMini{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.wheelMini span{padding:4px 7px;border-radius:6px;font-size:11px;font-weight:700}.foot{font-size:11px;color:var(--muted);line-height:1.5;margin-top:18px}
+@media(max-width:620px){.grid{grid-template-columns:1fr}.numbers{grid-template-columns:repeat(7,minmax(0,1fr))}.panel{padding:12px}header{align-items:flex-start}.big{font-size:25px}}
+</style>
+</head>
+<body><main>
+<header><div><h1>Y Roulette Analyzer</h1><div class="sub">Leitura do lançamento • validação do sensor • região oposta</div></div><span class="tag">ROULETA EUROPEIA · 37 CASAS</span></header>
+
+<section class="panel">
+<h2>1. Câmera e sensor</h2>
+<div class="videoWrap"><video id="video" autoplay muted playsinline></video></div>
+<div class="row" style="margin-top:10px">
+<button class="primary" id="startCam">Ativar câmera</button><button id="stopCam" disabled>Desligar</button><button id="setRoi" disabled>Marcar sensor no vídeo</button>
+</div>
+<p class="videoHint">Ative a câmera e toque em “Marcar sensor no vídeo”; depois toque sobre a área do sensor verde. A câmera acompanha a cor nessa pequena área.</p>
+<div class="row" style="margin-top:10px;justify-content:space-between">
+<div class="status"><span id="sensorDot" class="dot"></span><span id="sensorText">Sensor não calibrado</span></div>
+<div class="calibration" id="roiText">Área do sensor: não definida</div>
+</div>
+<div class="hint" style="margin-top:8px">O sensor precisa ser visto com nitidez. Reflexos, movimento, sombra ou o sensor sair do enquadramento podem interromper a leitura. O gatilho válido é uma transição detectada de verde para laranja.</div>
+</section>
+
+<section class="panel">
+<h2>2. Dados do lançamento</h2>
+<div class="grid">
+<div class="field"><label for="launchNumber">Número que estava sob a bolinha no lançamento</label><select id="launchNumber"></select></div>
+<div class="field"><label for="launchSector">Posição do lançamento no Y</label><select id="launchSector"><option value="A">A — frente do crupiê</option><option value="B">B — esquerda do crupiê</option><option value="C">C — direita do crupiê</option></select></div>
+</div>
+<div class="hint" style="margin-top:9px">A/B/C e o número são registrados para cada giro. Nesta primeira versão, a leitura do número e do setor é assistida: selecione os dados observados no vídeo. A detecção automática do número em uma roleta girando exige calibração visual específica da mesa.</div>
+<div class="row" style="margin-top:12px">
+<button class="primary" id="arm">Armar validação do sensor</button><button id="resetSensor">Reiniciar sensor</button>
+<span id="armStatus" class="muted" style="font-size:12px">Aguardando calibração</span>
+</div>
+</section>
+
+<section class="panel">
+<h2>3. Oposição e faixa de 13 casas</h2>
+<div class="result"><div><div class="muted" style="font-size:12px">Número principal oposto</div><div id="mainNumber" class="big">—</div><div id="targetInfo" class="sub">Nenhum sinal validado</div></div><div id="validBadge" class="tag">SEM SINAL</div></div>
+<div id="numbers" class="numbers"></div>
+<div class="row" style="margin-top:12px"><label for="offset" style="margin:0">Calibração do ponto oposto (casas na ordem física)</label><select id="offset"><option value="18">18 casas</option><option value="19">19 casas</option></select></div>
+<p class="hint">A roda europeia tem 37 casas: o ponto exatamente a 180° fica entre duas casas. Por isso, a calibração permite escolher 18 ou 19 posições na sequência física. Confirme esse alinhamento com a posição real do Y antes de usar os resultados.</p>
+</section>
+
+<section class="panel">
+<div class="row" style="justify-content:space-between"><h2 style="margin:0">4. Histórico</h2><div class="row"><button id="export">Exportar CSV</button><button id="clear">Limpar</button></div></div>
+<div style="overflow:auto;margin-top:8px"><table class="history"><thead><tr><th>Hora</th><th>Lançamento</th><th>Y</th><th>Sensor</th><th>Principal</th><th>Faixa</th></tr></thead><tbody id="history"><tr><td colspan="6" class="muted">Nenhum giro validado.</td></tr></tbody></table></div>
+</section>
+<p class="foot">Ferramenta experimental de registro e análise. A mudança de cor confirma apenas a leitura visual configurada; não garante que o número oposto ou a faixa contenham o resultado. Não há promessa de previsão ou vantagem na roleta. A câmera funciona somente após sua autorização e o vídeo não é enviado a um servidor por este aplicativo.</p>
+</main>
+<canvas id="sample" width="160" height="120" style="display:none"></canvas>
+<script>
+const ORDER=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+const REDS=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+const $=id=>document.getElementById(id);
+const video=$('video'),sample=$('sample'),ctx=sample.getContext('2d',{willReadFrequently:true});
+let stream=null,roi=null,selectingRoi=false,raf=0,lastColor='unknown',armed=false,greenSeen=false,lastTrigger=0,history=[];
+for(let n=0;n<=36;n++){const o=document.createElement('option');o.value=n;o.textContent=n;$('launchNumber').append(o)}
+function colorClass(n){return n===0?'zero':REDS.has(n)?'red':'black'}
+function renderBand(main){
+ const idx=ORDER.indexOf(main),list=[];
+ for(let d=-6;d<=6;d++)list.push(ORDER[(idx+d+37)%37]);
+ $('numbers').innerHTML='';
+ list.forEach((n,i)=>{const el=document.createElement('div');el.className='pocket '+colorClass(n)+(i===6?' main':'');el.innerHTML=n+(i===6?'<small>PRINCIPAL</small>':'');$('numbers').append(el)});
+}
+function setSensor(color,label){
+ $('sensorDot').className='dot '+(color==='green'?'green':color==='orange'?'orange':color==='unknown'?'':'red');
+ $('sensorText').textContent=label;
+}
+function classify(r,g,b){
+ const max=Math.max(r,g,b),min=Math.min(r,g,b),sat=max?((max-min)/max):0;
+ if(g>65 && g>r*1.22 && g>b*1.12 && sat>.28)return 'green';
+ if(r>100 && r>g*1.18 && g>b*1.15 && sat>.25)return 'orange';
+ return 'unknown';
+}
+function sampleSensor(){
+ if(!stream||!roi||video.readyState<2){raf=requestAnimationFrame(sampleSensor);return}
+ try{
+  ctx.drawImage(video,0,0,sample.width,sample.height);
+  const x=Math.max(0,Math.min(sample.width-1,Math.round(roi.x*sample.width))),y=Math.max(0,Math.min(sample.height-1,Math.round(roi.y*sample.height)));
+  const d=ctx.getImageData(Math.max(0,x-3),Math.max(0,y-3),Math.min(7,sample.width-Math.max(0,x-3)),Math.min(7,sample.height-Math.max(0,y-3))).data;
+  let r=0,g=0,b=0,c=0;for(let i=0;i<d.length;i+=4){r+=d[i];g+=d[i+1];b+=d[i+2];c++}
+  const detected=classify(r/c,g/c,b/c);
+  if(detected==='green'){greenSeen=true;if(lastColor!=='green')setSensor('green','Sensor verde — aguardando mudança');}
+  else if(detected==='orange'){
+    if(lastColor==='green'&&greenSeen&&armed&&Date.now()-lastTrigger>1800){lastTrigger=Date.now();triggerSignal()}
+    setSensor('orange','Sensor laranja — '+(armed?'mudança detectada':'não armado'));
+  }else{setSensor('unknown','Sensor não identificado — confira a área');}
+  lastColor=detected;
+ }catch(e){setSensor('unknown','Falha na leitura do sensor')}
+ raf=requestAnimationFrame(sampleSensor);
+}
+async function startCamera(){
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});video.srcObject=stream;$('startCam').disabled=true;$('stopCam').disabled=false;$('setRoi').disabled=false;sampleSensor();}
+ catch(e){alert('Não foi possível abrir a câmera. Autorize o acesso e use o site em HTTPS.')}
+}
+function stopCamera(){cancelAnimationFrame(raf);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;$('startCam').disabled=false;$('stopCam').disabled=true;$('setRoi').disabled=true;setSensor('unknown','Câmera desligada')}
+$('startCam').onclick=startCamera;$('stopCam').onclick=stopCamera;
+$('setRoi').onclick=()=>{selectingRoi=true;$('roiText').textContent='Toque sobre o sensor verde no vídeo';$('video').style.cursor='crosshair'};
+video.addEventListener('click',e=>{if(!selectingRoi)return;const r=video.getBoundingClientRect();roi={x:(e.clientX-r.left)/r.width,y:(e.clientY-r.top)/r.height};selectingRoi=false;video.style.cursor='default';$('roiText').textContent='Sensor calibrado · '+Math.round(roi.x*100)+'%, '+Math.round(roi.y*100)+'%';lastColor='unknown';greenSeen=false;setSensor('unknown','Aguardando sensor verde')});
+function arm(){if(!stream||!roi){$('armStatus').textContent='Ative a câmera e marque a área do sensor';return}if(lastColor!=='green'){ $('armStatus').textContent='Aguarde o sensor ser identificado como verde';return}armed=true;greenSeen=true;$('armStatus').textContent='Armado: aguardando verde → laranja';$('validBadge').textContent='AGUARDANDO';$('validBadge').style.borderColor='#20b879'}
+$('arm').onclick=arm;
+$('resetSensor').onclick=()=>{armed=false;greenSeen=lastColor==='green';$('armStatus').textContent='Validação reiniciada';$('validBadge').textContent='SEM SINAL';$('validBadge').style.borderColor='';$('mainNumber').textContent='—';$('targetInfo').textContent='Aguardando novo lançamento validado';$('numbers').innerHTML=''};
+function triggerSignal(){
+ armed=false;
+ const launch=Number($('launchNumber').value),sector=$('launchSector').value,offset=Number($('offset').value);
+ const i=ORDER.indexOf(launch),main=ORDER[(i+offset)%37];
+ renderBand(main);
+ $('mainNumber').textContent=String(main);
+ $('targetInfo').textContent='Destino de análise: região C · lançamento '+launch+' na posição '+sector;
+ $('validBadge').textContent='SINAL VALIDADO';$('validBadge').style.borderColor='#20b879';
+ $('armStatus').textContent='Sinal gerado após mudança verde → laranja';
+ const band=Array.from({length:13},(_,d)=>ORDER[(ORDER.indexOf(main)+d-6+37)%37]);
+ history.unshift({time:new Date().toLocaleTimeString('pt-BR'),launch,sector,main,band:band.join(' '),sensor:'Verde → laranja'});
+ renderHistory();
+}
+function renderHistory(){
+ const body=$('history');body.innerHTML='';
+ if(!history.length){body.innerHTML='<tr><td colspan="6" class="muted">Nenhum giro validado.</td></tr>';return}
+ history.forEach(h=>{const tr=document.createElement('tr');[h.time,h.launch,h.sector,h.sensor,h.main,'13 casas'].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});body.append(tr)});
+}
+$('offset').onchange=()=>{if($('mainNumber').textContent!=='—'){$('targetInfo').textContent='Ajuste de oposição alterado; aguarde novo sinal para recalcular.'}};
+$('clear').onclick=()=>{if(confirm('Apagar todo o histórico desta sessão?')){history=[];renderHistory()}};
+$('export').onclick=()=>{if(!history.length){alert('Ainda não há registros.');return}const rows=[['hora','numero_lancado','posicao_Y','sensor','numero_principal','faixa_13'],...history.map(h=>[h.time,h.launch,h.sector,h.sensor,h.main,h.band])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='y-roulette-historico.csv';a.click();URL.revokeObjectURL(a.href)};
+renderBand(9);
+</script></body></html>
