@@ -335,7 +335,7 @@ function stopSource(){
   S.running=false;S.eng=null;S.info=null;
   if(vid.srcObject){vid.srcObject.getTracks().forEach(function(t){t.stop();});vid.srcObject=null;}
   try{vid.pause();}catch(e){}
-  S.calStep=0;S.taps=[];S.cal=null;S.last=null;
+  S.calStep=0;S.taps=[];S.cal=null;S.pendingCal=null;S.last=null;
 }
 function sizeCanvas(){
   var pw=Math.min(512,vid.videoWidth||512);
