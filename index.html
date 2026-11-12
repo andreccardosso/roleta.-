@@ -130,13 +130,12 @@ th{font:600 11px var(--f-head);text-transform:uppercase;letter-spacing:.07em;col
 
   <section class="card">
     <h2>Referência dos sensores e do Y</h2>
-    <p class="note">Marque na imagem a luz do sensor inferior. O aplicativo só reconhece a mudança de verde para laranja quando a área marcada estiver visível na câmera.</p>
-    <div class="row" style="margin-top:10px">
-      <button id="btnSensorMark" type="button">Marcar luz do sensor inferior</button>
-      <button id="btnSideA" type="button" aria-pressed="false">Lançamento no lado A</button>
-      <button id="btnSideB" type="button" aria-pressed="false">Lançamento no lado B</button>
+    <p class="note">A câmera localiza automaticamente a luz verde fixa, acompanha sua cor e detecta o ponto inicial da bolinha em relação à referência do Y. Se não reconhecer algum dado, descarta o giro e continua observando.</p>
+    <p class="guide" id="sensorGuide" aria-live="polite">Aguardando a câmera localizar a luz do sensor e o ponto de partida da bolinha.</p>
+    <div class="metrics" style="margin-top:10px">
+      <div class="m"><span>Partida da bolinha</span><b id="ballStartSide" style="font-size:16px">não identificada</b></div>
+      <div class="m"><span>Referência C</span><b id="ballOppositeSide" style="font-size:16px">—</b></div>
     </div>
-    <p class="guide" id="sensorGuide" aria-live="polite">Marque a luz inferior na imagem e selecione o lado A ou B do Y. A marcação é visual; não representa conexão elétrica com o sensor físico.</p>
     <div class="metrics" style="margin-top:10px">
       <div class="m"><span>Luz reconhecida</span><b id="sensorColor" style="font-size:16px">não marcada</b></div>
       <div class="m"><span>Giros observados</span><b id="sensorRounds">0/2</b></div>
@@ -326,6 +325,7 @@ function Engine(W,H,cal,opts){
   this.prev=new Uint8Array(this.ring.idx.length);
   this.thr=opts.thr||185;this.mirror=!!opts.mirror;this.hist=opts.hist;
   this.onEnd=opts.onEnd||function(){};
+  this.onBallStart=opts.onBallStart||function(){};
   this.primed=false;this.cool=-1;
   this.zero={ok:false,raw:0,Z:0,t:0,vel:0,miss:0};
   this.tk={locked:false,dir:0,raw:0,B:0,v:0,lastSeen:0,pend:null};
@@ -356,6 +356,7 @@ Engine.prototype._start=function(bd,t,p){
   const tk=this.tk;
   tk.locked=true;tk.dir=Math.sign(p.cum);tk.raw=bd.ang;tk.B=bd.ang;tk.v=Math.abs(p.cum)/Math.max(0.05,t-p.t0);tk.lastSeen=t;tk.pend=null;
   this.spin={T:[t],B:[bd.ang],Z:[this.zero.Z],R:[bd.rho],dir:tk.dir,dropped:false,wasTrack:true,inCnt:0,pred:null,lastPredT:-1,t0:t};
+  this.onBallStart(bd,t);
 };
 Engine.prototype._end=function(t){
   const sp=this.spin,tk=this.tk;
@@ -426,7 +427,7 @@ var LAB=['ESQUERDA','DIREITA','de CIMA','de BAIXO'];
 var REDS={1:1,3:1,5:1,7:1,9:1,12:1,14:1,16:1,18:1,19:1,21:1,23:1,25:1,27:1,30:1,32:1,34:1,36:1};
 var S={mode:null,calStep:0,taps:[],cal:null,photoCalNorm:null,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null,
   auto:true,det:null,fr:null,good:[],prop:null,said:'',saidAt:0,drag:null,
-  sensorROI:null,sensorMark:false,sensorColor:'unknown',sensorPrev:null,sensorRounds:0,sensorTransitionSeen:false,sensorValidated:false,ySide:null};
+  sensorROI:null,sensorColor:'unknown',sensorPrev:null,sensorRounds:0,sensorTransitionSeen:false,sensorValidated:false,ySide:null,ballStartSide:null,sensorAngle:null};
 var photoImg=null;
 var dcv=document.createElement('canvas'),dctx=dcv.getContext('2d',{willReadFrequently:true});
 var hist=(function(){try{var j=JSON.parse(localStorage.getItem('rr-hist-v1')||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
@@ -489,19 +490,24 @@ async function useCam(){
   }
 }
 $('btnCam').addEventListener('click',useCam);
-$('btnSensorMark').addEventListener('click',function(){
-  if(!S.mode){$('sensorGuide').textContent='Primeiro abra a câmera ou carregue um vídeo da roleta.';return;}
-  S.sensorMark=true;$('sensorGuide').textContent='Toque exatamente no centro da luz do sensor inferior na imagem.';
-});
-function setYSide(side){
-  S.ySide=side;
-  $('btnSideA').setAttribute('aria-pressed',side==='A'?'true':'false');
-  $('btnSideB').setAttribute('aria-pressed',side==='B'?'true':'false');
-  $('sensorRegion').textContent=side==='A'?'C · direita':'C · esquerda';
-  updateSensorUI();
+function autoFindSensor(){
+  if(S.sensorROI||!view.width||!view.height)return false;
+  var d;
+  try{d=vctx.getImageData(0,0,view.width,view.height).data;}catch(e){return false;}
+  var sx=0,sy=0,n=0,minX=view.width,minY=view.height,maxX=0,maxY=0;
+  for(var y=1;y<view.height;y+=2)for(var x=1;x<view.width;x+=2){
+    var p=(y*view.width+x)<<2,r=d[p],g=d[p+1],b=d[p+2];
+    if(g>145&&g-r>45&&g-b>20&&r<150){
+      sx+=x;sy+=y;n++;if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;
+    }
+  }
+  var bw=maxX-minX+1,bh=maxY-minY+1;
+  if(n<4||bw>view.width*0.12||bh>view.height*0.18)return false;
+  var cx=sx/n,cy=sy/n;
+  S.sensorROI={x:cx/view.width,y:cy/view.height,r:Math.max(4,view.width*0.014)/view.width};
+  $('sensorGuide').textContent='Luz verde localizada automaticamente. Acompanhando o sensor e a partida da bolinha.';
+  return true;
 }
-$('btnSideA').addEventListener('click',function(){setYSide('A');});
-$('btnSideB').addEventListener('click',function(){setYSide('B');});
 function sampleSensor(){
   if(!S.sensorROI||!view.width||!view.height)return 'unknown';
   var q=S.sensorROI,x=Math.max(0,Math.min(view.width-1,Math.round(q.x*view.width))),
@@ -517,19 +523,23 @@ function sampleSensor(){
   return 'unknown';
 }
 function updateSensorUI(){
-  $('sensorColor').textContent=S.sensorColor==='green'?'verde':(S.sensorColor==='orange'?'laranja':(S.sensorROI?'não identificado':'não marcada'));
+  $('sensorColor').textContent=S.sensorColor==='green'?'verde':(S.sensorColor==='orange'?'laranja':(S.sensorROI?'não identificado':'procurando'));
   $('sensorRounds').textContent=Math.min(S.sensorRounds,2)+'/2';
   $('sensorGate').textContent=S.sensorValidated?'validado':'bloqueada';
-  $('sensorStatus').textContent=S.sensorRounds<2?'Observação '+(S.sensorRounds+1)+' de 2: nenhuma indicação será liberada.':
-    (S.sensorValidated?'Mudança verde → laranja reconhecida. Referência Y liberada para análise.':'Aguardando mudança confirmada de verde para laranja.');
+  $('sensorRegion').textContent=S.ballStartSide?(S.ballStartSide==='A'?'C · direita':'C · esquerda'):'—';
+  $('ballStartSide').textContent=S.ballStartSide||'não identificada';
+  $('ballOppositeSide').textContent=S.ballStartSide?(S.ballStartSide==='A'?'C · direita':'C · esquerda'):'—';
+  $('sensorStatus').textContent=S.sensorRounds<2?'Observação automática '+(S.sensorRounds+1)+' de 2: sem sinal.':
+    (S.sensorValidated?'Sensor mudou de verde para laranja. Sinal liberado para análise.':'Aguardando mudança confirmada de verde para laranja.');
 }
 function processSensor(){
-  if(!S.sensorROI)return;
+  if(!S.sensorROI)autoFindSensor();
+  if(!S.sensorROI){updateSensorUI();return;}
   var color=sampleSensor();
   if(color!=='unknown'){
     if(S.sensorPrev==='green'&&color==='orange'){
       S.sensorTransitionSeen=true;
-      if(S.sensorRounds>=2&&S.ySide)S.sensorValidated=true;
+      if(S.sensorRounds>=2&&S.ballStartSide)S.sensorValidated=true;
     }
     S.sensorPrev=color;S.sensorColor=color;
   }
@@ -550,12 +560,6 @@ view.addEventListener('pointerdown',function(e){
   if(!S.mode)return;
   var r=view.getBoundingClientRect();
   var x=(e.clientX-r.left)*view.width/r.width,y=(e.clientY-r.top)*view.height/r.height;
-  if(S.sensorMark){
-    S.sensorROI={x:x/view.width,y:y/view.height,r:Math.max(5,view.width*0.018)/view.width};
-    S.sensorMark=false;msg('Área da luz marcada. Inicie o rastreio e mantenha o indicador visível.');
-    $('sensorGuide').textContent='Área marcada. Confira se o quadrado está sobre a luz do sensor inferior.';
-    ui();if(S.mode==='file'&&vid.paused)drawFrame();return;
-  }
   if(S.running||S.auto)return;
   if(S.cal&&S.calStep>=4){
     var c=S.cal,hit=Math.max(14,view.width*0.035),handles=[['left',c.cx-c.rx,c.cy],['right',c.cx+c.rx,c.cy],['top',c.cx,c.cy-c.ry],['bottom',c.cx,c.cy+c.ry]],type='move',best=hit;
@@ -614,7 +618,8 @@ function start(){
   S.sensorRounds=0;S.sensorTransitionSeen=false;S.sensorValidated=false;S.sensorPrev=null;S.sensorColor='unknown';
   if(S.mode==='photo'){msg('A foto serve para calibrar. Agora abra a câmera para conferir a marcação e iniciar o rastreio.');return;}
   if(!S.cal)return;
-  S.eng=new Engine(view.width,view.height,S.cal,{thr:S.thr,mirror:S.mirror,hist:hist,onEnd:onEnd});
+  S.sensorROI=null;S.sensorColor='unknown';S.sensorPrev=null;S.sensorRounds=0;S.sensorValidated=false;S.ballStartSide=null;S.sensorAngle=null;
+  S.eng=new Engine(view.width,view.height,S.cal,{thr:S.thr,mirror:S.mirror,hist:hist,onEnd:onEnd,onBallStart:onBallStart});
   S.running=true;S.lastT=-1;S.info=null;msg('');
   if(S.mode==='file'){try{vid.currentTime=0;}catch(e){}vid.play().catch(function(){msg('Toque em Iniciar de novo para liberar o vídeo.');S.running=false;ui();});}
   ui();
@@ -629,10 +634,23 @@ $('btnStart').addEventListener('click',start);
 $('btnStop').addEventListener('click',stop);
 $('btnClear').addEventListener('click',function(){hist.spins=[];hist.crit=[];S.last=null;save();renderHist();ui();});
 
+function onBallStart(bd){
+  S.ballStartSide=null;
+  if(!S.sensorROI||!S.cal)return;
+  var sx=S.sensorROI.x*view.width,sy=S.sensorROI.y*view.height;
+  var sensorA=Math.atan2((sy-S.cal.cy)/S.cal.ry,(sx-S.cal.cx)/S.cal.rx);
+  var delta=wrapPi(bd.ang-sensorA);
+  if(Math.abs(delta)<0.18||Math.abs(delta)>Math.PI-0.18){
+    $('sensorGuide').textContent='Partida sobre a linha de referência: não identificada. O próximo giro será analisado.';
+    updateSensorUI();return;
+  }
+  S.ballStartSide=delta>0?'A':'B';
+  $('sensorGuide').textContent='Partida '+S.ballStartSide+' detectada. Região C oposta: '+(S.ballStartSide==='A'?'direita':'esquerda')+'.';
+  updateSensorUI();
+}
 function onEnd(e){
   S.last=e;S.sensorRounds++;
-  if(S.sensorRounds<=2)S.sensorValidated=false;
-  S.sensorTransitionSeen=false;
+  S.sensorValidated=false;S.sensorTransitionSeen=false;S.ballStartSide=null;
   save();renderHist();ui();updateSensorUI();
 }
 
@@ -690,9 +708,6 @@ function overlay(){
       g.fillStyle='#ffcc33';g.strokeStyle='#000';g.lineWidth=2;g.beginPath();
       g.moveTo(px+dx*s,py+dy*s);g.lineTo(px-dx*s*0.2-dy*s*0.9,py-dy*s*0.2-dx*s*0.9);g.lineTo(px-dx*s*0.2+dy*s*0.9,py-dy*s*0.2+dx*s*0.9);g.closePath();g.fill();g.stroke();
     }
-  }
-  if(S.sensorMark){
-    g.fillStyle='rgba(255,255,255,.95)';g.font='600 13px sans-serif';g.fillText('Toque na luz do sensor inferior',10,22);
   }
   g.fillStyle='#ffcc33';g.strokeStyle='#000';
   S.taps.forEach(function(p){g.beginPath();g.arc(p[0],p[1],5,0,Math.PI*2);g.fill();g.stroke();});
@@ -766,7 +781,7 @@ function live(){
   $('rPhase').textContent=ph;
   var p=i&&i.pred;
   $('rEta').innerHTML=(p&&i.phase==='pista')?'queda em ~'+Math.max(0,(p.D-(i.t-p.t))).toFixed(1)+' s':'&nbsp;';
-  var allowed=S.sensorRounds>=2&&S.sensorValidated&&!!S.ySide;
+  var allowed=S.sensorRounds>=2&&S.sensorValidated&&!!S.ballStartSide;
   renderPred(allowed?p:null,i&&i.dropped);
   updateSensorUI();
 }
@@ -783,7 +798,7 @@ function renderPred(p,frozen){
     $('zone').innerHTML=h;
   }
   var q=$('qual');
-  if(!p){q.className='qual warn';q.textContent=S.sensorRounds<2?'Observação inicial: aguardando completar duas rodadas, sem indicação.':(!S.sensorROI?'Marque a luz do sensor inferior para reconhecer a mudança de cor.':(!S.ySide?'Selecione o lado A ou B do Y.':'Aguardando mudança do sensor de verde para laranja.'));return;}
+  if(!p){q.className='qual warn';q.textContent=S.sensorRounds<2?'Observação automática: aguardando completar duas rodadas, sem indicação.':(!S.sensorROI?'Câmera procurando a luz verde do sensor.':(!S.ballStartSide?'Partida da bolinha não identificada; aguardando próximo giro.':'Aguardando mudança do sensor de verde para laranja.'));return;}
   if(!mdl.ready){q.className='qual warn';q.textContent='Aprendendo: '+mdl.n+' de 5 giros completos medidos. Até lá a zona é larga e sem ajuste.';}
   else if(mdl.R<0.35){q.className='qual warn';q.textContent='Com '+mdl.n+' giros, o erro está muito espalhado. A estimativa ainda não passa de palpite.';}
   else{q.className='qual good';q.textContent='Com '+mdl.n+' giros, o erro está concentrado (índice '+mdl.R.toFixed(2)+'). A zona foi ajustada por esses giros.';}
