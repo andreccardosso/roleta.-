@@ -1,5 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<title>Rastreador de Roleta</title>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light dark;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style></head><body><title>Rastreador de Roleta</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
@@ -38,6 +37,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
 button:focus-visible,.btn:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .guide{margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--surface2);font-size:14px}
 .guide b{font-weight:600}
+.fine{gap:6px}
+.fine .lbl{font:600 12px var(--f-head);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-right:4px}
+.fine button{min-width:46px;padding:10px 12px}
 .ctrl{display:grid;grid-template-columns:1fr;gap:12px}
 .ctrl label{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--muted)}
 input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
@@ -83,18 +85,31 @@ th{font:600 11px var(--f-head);text-transform:uppercase;letter-spacing:.07em;col
       <button id="btnCam" type="button">Câmera</button>
       <label class="btn" for="file">Vídeo gravado</label>
       <input type="file" id="file" accept="video/*" hidden>
+      <label class="btn primary" for="rec">Gravar com a câmera</label>
+      <input type="file" id="rec" accept="video/*" capture="environment" hidden>
       <button id="btnRecal" type="button" disabled>Refazer calibração</button>
-      <button id="btnAssist" type="button">Calibração automática</button>
-      <button id="btnManual" type="button">Calibração manual</button>
-      <button id="btnConfirmCal" class="primary" type="button" hidden>Confirmar calibração</button>
     </div>
-    <p class="guide" id="guide">Escolha a câmera (aponte para a tela da roleta) ou envie um vídeo gravado.</p>
+    <p class="guide" id="guide" aria-live="polite">Escolha a câmera (aponte para a tela da roleta) ou envie um vídeo gravado.</p>
+    <div class="row" id="autoRow" style="margin-top:10px" hidden>
+      <button id="btnConfirm" class="primary" type="button" disabled>Confirmar posição</button>
+      <button id="btnManual" type="button">Calibrar manualmente</button>
+    </div>
+    <div class="row fine" id="fine" style="margin-top:10px" hidden>
+      <span class="lbl">Ajuste fino</span>
+      <button type="button" data-act="l" aria-label="Mover a marcação para a esquerda">←</button>
+      <button type="button" data-act="r" aria-label="Mover a marcação para a direita">→</button>
+      <button type="button" data-act="u" aria-label="Mover a marcação para cima">↑</button>
+      <button type="button" data-act="d" aria-label="Mover a marcação para baixo">↓</button>
+      <button type="button" data-act="plus" aria-label="Aumentar a marcação">Maior</button>
+      <button type="button" data-act="minus" aria-label="Diminuir a marcação">Menor</button>
+    </div>
     <p class="msg" id="msg" hidden></p>
   </section>
 
   <section class="card ctrl">
     <label for="thr"><span style="min-width:112px">Brilho da bolinha</span><input type="range" id="thr" min="120" max="245" value="185"><span id="thrv" style="font-family:var(--f-mono);min-width:3ch;text-align:right">185</span></label>
     <label for="mirror"><input type="checkbox" id="mirror"><span>Imagem espelhada (câmera frontal)</span></label>
+    <label for="voice"><input type="checkbox" id="voice" checked><span>Avisos por voz durante a calibração</span></label>
     <div class="row">
       <button id="btnStart" class="primary" type="button" disabled>Iniciar rastreio</button>
       <button id="btnStop" type="button" disabled>Parar</button>
@@ -147,6 +162,67 @@ const TAU=Math.PI*2,STEP=TAU/37,NB=120;
 const BAND_LO=0.84,BAND_HI=1.05,RHO_MIN=0.42,RHO_MAX=1.75;
 const MINPIX=8;
 const WHEEL=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+/* ===== Calibração automática: acha a roda pelas casas vermelhas ===== */
+function detectWheel(img,W,H){
+  var st=Math.max(2,Math.round(W/160)),xs=[],ys=[],x,y,i;
+  for(y=0;y<H;y+=st){for(x=0;x<W;x+=st){
+    var p=(y*W+x)<<2,r=img[p],g=img[p+1],b=img[p+2];
+    if(r>110&&r-g>60&&r-b>50){xs.push(x);ys.push(y);}
+  }}
+  var n=xs.length;
+  if(n<(W*H)/(st*st)*0.0035)return{ok:false};
+  if(n>320){var kp=Math.ceil(n/320),tx=[],ty=[];for(i=0;i<n;i+=kp){tx.push(xs[i]);ty.push(ys[i]);}xs=tx;ys=ty;n=xs.length;}
+  var best=null,bs=-1;
+  var X=Float32Array.from(xs),Y=Float32Array.from(ys);
+  function count(gcx,gcy,grx,gry){
+    var c=0,ix=1/grx,iy=1/gry,k,a,b2,qq;
+    for(k=0;k<n;k++){a=(X[k]-gcx)*ix;b2=(Y[k]-gcy)*iy;qq=a*a+b2*b2;if(qq>0.6724&&qq<1.3924)c++;}
+    return c;
+  }
+  function score(gcx,gcy,grx,gry){
+    var c=count(gcx,gcy,grx,gry),ff=c/Math.sqrt(grx*gry);
+    if(ff>bs){bs=ff;best={cx:gcx,cy:gcy,rx:grx,ry:gry,sc:c};}
+  }
+  var cs=W/32,gcx,gcy,grx,rt,gry;
+  for(gcx=W*0.15;gcx<=W*0.85;gcx+=cs){for(gcy=H*0.15;gcy<=H*0.85;gcy+=cs){
+    for(grx=W*0.08;grx<=W*0.5;grx+=cs){for(rt=0.45;rt<=1.16;rt+=0.1){
+      gry=grx*rt;if(gry<H*0.08||gry>H*0.55)continue;score(gcx,gcy,grx,gry);}}}}
+  if(!best)return{ok:false};
+  var c0=best,fs=cs/3,dx,dy,dr,dq;
+  for(dx=-cs;dx<=cs;dx+=fs){for(dy=-cs;dy<=cs;dy+=fs){for(dr=-cs;dr<=cs;dr+=fs){for(dq=-0.1;dq<=0.1;dq+=0.05){
+    grx=c0.rx+dr;gry=c0.ry+dr*0.75+dq*c0.rx;if(grx<W*0.06||gry<H*0.06)continue;score(c0.cx+dx,c0.cy+dy,grx,gry);}}}}
+  if(!best||best.sc<n*0.3)return{ok:false};
+  var m=0,sx=0,sy=0,sec=new Uint8Array(12),u,v,q;
+  for(i=0;i<n;i++){u=(xs[i]-best.cx)/best.rx;v=(ys[i]-best.cy)/best.ry;q=u*u+v*v;
+    if(q>0.6724&&q<1.3924){m++;sx+=xs[i];sy+=ys[i];sec[((Math.atan2(v,u)+Math.PI)/(2*Math.PI)*12|0)%12]++;}}
+  var cover=0;for(i=0;i<12;i++)if(sec[i]>=Math.max(2,m/60))cover++;
+  if(cover<7||m<12)return{ok:false};
+  return{ok:true,cx:sx/m,cy:sy/m,rx:best.rx/0.85,ry:best.ry/0.85,cover:cover,n:m};
+}
+/* Diz o que fazer com o celular. Esquerda/direita/cima/baixo é o movimento do celular. */
+function framing(d,W,H){
+  if(!d||!d.ok)return{k:'busca',good:false,text:'Procurando a roda. Aponte a câmera para a roleta e deixe a roda inteira no quadro.'};
+  var M=1.12,L=d.cx-d.rx*M,R=d.cx+d.rx*M,T=d.cy-d.ry*M,B=d.cy+d.ry*M;
+  if(R-L>W*0.99||B-T>H*0.99)return{k:'afastar',good:false,text:'Afaste o celular da tela. A roda e a pista da bolinha precisam caber no quadro.'};
+  if(L<0)return{k:'esq',good:false,text:'Mova o celular um pouco para a esquerda.'};
+  if(R>W)return{k:'dir',good:false,text:'Mova o celular um pouco para a direita.'};
+  if(T<0)return{k:'cima',good:false,text:'Mova o celular um pouco para cima.'};
+  if(B>H)return{k:'baixo',good:false,text:'Mova o celular um pouco para baixo.'};
+  if(Math.max(2*d.rx/W,2*d.ry/H)<0.55)return{k:'aproximar',good:false,text:'Aproxime o celular da tela. A roda está pequena no quadro.'};
+  if(d.cx<W*0.5-W*0.14)return{k:'esq',good:false,text:'Mova o celular um pouco para a esquerda para centralizar a roda.'};
+  if(d.cx>W*0.5+W*0.14)return{k:'dir',good:false,text:'Mova o celular um pouco para a direita para centralizar a roda.'};
+  if(d.cy<H*0.5-H*0.16)return{k:'cima',good:false,text:'Mova o celular um pouco para cima para centralizar a roda.'};
+  if(d.cy>H*0.5+H*0.16)return{k:'baixo',good:false,text:'Mova o celular um pouco para baixo para centralizar a roda.'};
+  return{k:'bom',good:true,text:'Posição boa. Segure o celular firme.'};
+}
+/* Média das últimas leituras boas, ou null se ainda oscilam mais de 2% do quadro. */
+function stableMean(list,W,H){
+  if(list.length<6)return null;
+  var k,mn={cx:1e9,cy:1e9,rx:1e9,ry:1e9},mx={cx:-1e9,cy:-1e9,rx:-1e9,ry:-1e9},s={cx:0,cy:0,rx:0,ry:0},p;
+  for(k=0;k<list.length;k++)for(p in s){var v=list[k][p];if(v<mn[p])mn[p]=v;if(v>mx[p])mx[p]=v;s[p]+=v;}
+  if(mx.cx-mn.cx>W*0.02||mx.rx-mn.rx>W*0.03||mx.cy-mn.cy>H*0.03||mx.ry-mn.ry>H*0.04)return null;
+  return{cx:s.cx/list.length,cy:s.cy/list.length,rx:s.rx/list.length,ry:s.ry/list.length};
+}
 function wrapPi(a){return a-TAU*Math.round(a/TAU);}
 function linfit(xs,ys){const n=xs.length;let sx=0,sy=0,sxx=0,sxy=0;for(let i=0;i<n;i++){sx+=xs[i];sy+=ys[i];sxx+=xs[i]*xs[i];sxy+=xs[i]*ys[i];}const d=n*sxx-sx*sx;if(Math.abs(d)<1e-9)return null;const b=(n*sxy-sx*sy)/d;return{a:(sy-b*sx)/n,b:b};}
 function median(a){if(!a.length)return null;const s=a.slice().sort(function(x,y){return x-y;});return s[s.length>>1];}
@@ -328,19 +404,22 @@ vid.style.cssText='position:fixed;left:-9999px;top:0;width:2px;height:2px;opacit
 document.body.appendChild(vid);
 var LAB=['ESQUERDA','DIREITA','de CIMA','de BAIXO'];
 var REDS={1:1,3:1,5:1,7:1,9:1,12:1,14:1,16:1,18:1,19:1,21:1,23:1,25:1,27:1,30:1,32:1,34:1,36:1};
-var S={mode:null,calStep:0,taps:[],cal:null,pendingCal:null,assist:true,autoCal:false,lastAutoAt:0,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null};
+var S={mode:null,calStep:0,taps:[],cal:null,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null,
+  auto:true,det:null,fr:null,good:[],prop:null,said:'',saidAt:0};
+var dcv=document.createElement('canvas'),dctx=dcv.getContext('2d',{willReadFrequently:true});
 var hist=(function(){try{var j=JSON.parse(localStorage.getItem('rr-hist-v1')||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
 function save(){try{localStorage.setItem('rr-hist-v1',JSON.stringify(hist));}catch(e){}}
 function msg(t){var m=$('msg');m.textContent=t||'';m.hidden=!t;}
-function say(t){try{if('speechSynthesis' in window){window.speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(t);u.lang='pt-BR';u.rate=1;window.speechSynthesis.speak(u);}}catch(e){}}
 function cls(n){return n===0?'n-green':(REDS[n]?'n-red':'n-black');}
 
 function stopSource(){
   S.running=false;S.eng=null;S.info=null;
   if(vid.srcObject){vid.srcObject.getTracks().forEach(function(t){t.stop();});vid.srcObject=null;}
   try{vid.pause();}catch(e){}
-  S.calStep=0;S.taps=[];S.cal=null;S.pendingCal=null;S.autoCal=false;S.last=null;
+  S.calStep=0;S.taps=[];S.cal=null;S.last=null;
+  resetAuto();
 }
+function resetAuto(){S.auto=true;S.det=null;S.fr=null;S.good=[];S.prop=null;S.said='';}
 function sizeCanvas(){
   var pw=Math.min(512,vid.videoWidth||512);
   view.width=pw;view.height=Math.round((vid.videoHeight||288)*pw/(vid.videoWidth||512));
@@ -353,52 +432,56 @@ function drawFrame(){
 }
 async function useCam(){
   msg('');
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){msg('Este navegador não libera a câmera nesta página. Grave um vídeo e use "Vídeo gravado".');return;}
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){msg('Esta página não libera a câmera ao vivo. Use "Gravar com a câmera" para filmar o giro e analisar em seguida.');return;}
   try{
     var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:60}},audio:false});
     stopSource();vid.srcObject=st;await vid.play();
     S.mode='cam';sizeCanvas();loop();ui();
   }catch(e){
-    msg('Câmera indisponível aqui ('+(e&&e.name?e.name:'erro')+'). Abra o arquivo HTML direto no navegador do celular ou grave um vídeo e use "Vídeo gravado".');
+    msg('Câmera indisponível aqui ('+(e&&e.name?e.name:'erro')+'). Use "Gravar com a câmera" para filmar o giro e analisar em seguida.');
   }
 }
 $('btnCam').addEventListener('click',useCam);
-$('file').addEventListener('change',function(e){
-  var f=e.target.files&&e.target.files[0];if(!f)return;
+function onPick(e){
+  var f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;
   msg('');stopSource();
   vid.onloadeddata=function(){S.mode='file';sizeCanvas();try{vid.currentTime=0;}catch(x){}drawFrame();ui();};
   vid.src=URL.createObjectURL(f);vid.load();loop();
-});
+}
+$('file').addEventListener('change',onPick);
+$('rec').addEventListener('change',onPick);
 vid.addEventListener('seeked',function(){if(vid.paused)drawFrame();});
 vid.addEventListener('ended',function(){if(S.running){stop();msg('O vídeo terminou.');}});
 
 view.addEventListener('pointerdown',function(e){
-  if(!S.mode||S.running||S.autoCal||S.calStep>=4||S.pendingCal)return;
+  if(!S.mode||S.running||S.auto||S.calStep>=4)return;
   var r=view.getBoundingClientRect();
   var x=(e.clientX-r.left)*view.width/r.width,y=(e.clientY-r.top)*view.height/r.height;
   S.taps.push([x,y]);S.calStep++;
   if(S.calStep===4){
     var L=S.taps[0],R=S.taps[1],T=S.taps[2],B=S.taps[3];
     var cal={cx:(L[0]+R[0])/2,cy:(T[1]+B[1])/2,rx:Math.abs(R[0]-L[0])/2,ry:Math.abs(B[1]-T[1])/2};
-    if(cal.rx<20||cal.ry<10){S.calStep=0;S.taps=[];msg('Os pontos ficaram muito próximos. Marque novamente as quatro bordas.');say('Os pontos ficaram muito próximos. Marque novamente as quatro bordas.');}
-    else if(S.assist){
-      var dx=(cal.cx-view.width/2)/view.width,dy=(cal.cy-view.height/2)/view.height;
-      var sx=cal.rx/view.width,sy=cal.ry/view.height,advice=[];
-      if(Math.abs(dx)>0.09)advice.push(dx>0?'centralize a roleta mais à esquerda no enquadramento':'centralize a roleta mais à direita no enquadramento');
-      if(Math.abs(dy)>0.10)advice.push(dy>0?'centralize a roleta mais acima no enquadramento':'centralize a roleta mais abaixo no enquadramento');
-      if(sx<0.22||sy<0.22)advice.push('aproxime a câmera um pouco');
-      if(sx>0.47||sy>0.47)advice.push('afaste a câmera um pouco');
-      if(advice.length){var tip='Ajuste o enquadramento: '+advice.join('; ')+'. Depois marque as quatro bordas novamente.';S.calStep=0;S.taps=[];S.cal=null;msg(tip);say(tip);}
-      else{S.pendingCal=cal;msg('Enquadramento adequado. Confira os anéis na imagem e toque em “Confirmar calibração” para salvar.');say('Enquadramento adequado. Confira a imagem e confirme a calibração para salvar.');}
-    }else{S.cal=cal;msg('Calibração manual concluída.');}
+    if(cal.rx<20||cal.ry<10){S.calStep=0;S.taps=[];msg('Os pontos ficaram muito próximos. Refaça a calibração.');}
+    else{S.cal=cal;msg('');}
   }
   if(S.mode==='file'&&vid.paused)drawFrame();
   ui();
 });
-$('btnRecal').addEventListener('click',function(){if(S.running)stop();S.calStep=0;S.taps=[];S.cal=null;S.pendingCal=null;S.autoCal=false;msg('');if(S.mode==='file'&&vid.paused)drawFrame();ui();});
-$('btnAssist').addEventListener('click',function(){if(S.running)stop();S.assist=true;S.autoCal=true;S.lastAutoAt=0;S.calStep=0;S.taps=[];S.cal=null;S.pendingCal=null;msg('Analisando a imagem da câmera para localizar automaticamente a roleta. Mantenha a câmera apontada para a roda.');say('Vou procurar automaticamente a borda da roleta. Aguarde um instante.');ui();});
-$('btnManual').addEventListener('click',function(){S.assist=false;S.autoCal=false;S.calStep=0;S.taps=[];S.cal=null;S.pendingCal=null;msg('Modo manual ativado. A calibração será salva assim que marcar os quatro pontos.');say('Calibração manual ativada.');ui();});
-$('btnConfirmCal').addEventListener('click',function(){if(!S.pendingCal)return;S.cal=S.pendingCal;S.pendingCal=null;S.autoCal=false;msg('Calibração confirmada e salva nesta sessão.');say('Calibração confirmada. Você já pode iniciar o rastreio.');ui();});
+$('btnRecal').addEventListener('click',function(){if(S.running)stop();S.calStep=0;S.taps=[];S.cal=null;resetAuto();say('Procurando a roda de novo.',true);if(S.mode==='file'&&vid.paused)drawFrame();ui();});
+$('btnManual').addEventListener('click',function(){S.auto=false;S.det=null;S.prop=null;S.calStep=0;S.taps=[];if(S.mode==='file'&&vid.paused)drawFrame();ui();});
+$('btnConfirm').addEventListener('click',function(){
+  if(!S.prop)return;
+  S.cal={cx:S.prop.cx,cy:S.prop.cy,rx:S.prop.rx,ry:S.prop.ry};S.calStep=4;S.auto=false;S.det=null;S.prop=null;
+  say('Calibração confirmada. Toque em iniciar rastreio antes do lançamento.',true);
+  if(S.mode==='file'&&vid.paused)drawFrame();ui();
+});
+$('fine').addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b||!S.cal)return;
+  var a=b.getAttribute('data-act'),c=S.cal,st=view.width*0.008;
+  if(a==='l')c.cx-=st;else if(a==='r')c.cx+=st;else if(a==='u')c.cy-=st;else if(a==='d')c.cy+=st;
+  else if(a==='plus'){c.rx*=1.02;c.ry*=1.02;}else if(a==='minus'){c.rx/=1.02;c.ry/=1.02;}
+  if(S.mode==='file'&&vid.paused)drawFrame();
+});
 $('thr').addEventListener('input',function(){S.thr=+this.value;$('thrv').textContent=this.value;if(S.eng)S.eng.thr=S.thr;});
 $('mirror').addEventListener('change',function(){S.mirror=this.checked;if(S.eng)S.eng.mirror=S.mirror;});
 
@@ -439,68 +522,35 @@ function onFrame(t){
   if(S.running&&S.eng){
     var img=vctx.getImageData(0,0,view.width,view.height).data;
     S.info=S.eng.frame(img,t);
-  }else if(S.autoCal&&S.mode==='cam'&&performance.now()-S.lastAutoAt>850){
-    S.lastAutoAt=performance.now();
-    var found=detectWheel();
-    if(found){
-      var dx=(found.cx-view.width/2)/view.width,dy=(found.cy-view.height/2)/view.height;
-      var sx=found.rx/view.width,sy=found.ry/view.height,advice=[];
-      if(Math.abs(dx)>0.09)advice.push(dx>0?'mova a câmera um pouco para a esquerda':'mova a câmera um pouco para a direita');
-      if(Math.abs(dy)>0.10)advice.push(dy>0?'mova a câmera um pouco para cima':'mova a câmera um pouco para baixo');
-      if(sx<0.23||sy<0.23)advice.push('aproxime a câmera da roleta');
-      if(sx>0.47||sy>0.47)advice.push('afaste um pouco a câmera');
-      if(advice.length){var tip='Roleta localizada. '+advice.join('; ')+'.';msg(tip);if(!S.lastAutoTip||performance.now()-S.lastAutoTip>3500){say(tip);S.lastAutoTip=performance.now();}}
-      else{S.pendingCal=found;S.autoCal=false;msg('Roleta localizada automaticamente. Confira os anéis e confirme a calibração.');say('Encontrei a roleta. Confira os anéis na tela e confirme a calibração.');ui();}
-    }else if(!S.lastAutoTip||performance.now()-S.lastAutoTip>5000){var no='Ainda não consegui identificar a borda. Aponte a câmera para a roleta inteira, evite reflexos fortes e mantenha a imagem firme.';msg(no);say(no);S.lastAutoTip=performance.now();}
   }
   overlay();
   var nowMs=performance.now();
   if(nowMs-S.lastUI>120){S.lastUI=nowMs;live();}
 }
 
-
-function detectWheel(){
-  var w=view.width,h=view.height;
-  if(w<100||h<80)return null;
-  var data;
-  try{data=vctx.getImageData(0,0,w,h).data;}catch(e){return null;}
-  var gray=new Uint8Array(w*h);
-  for(var y=0;y<h;y++)for(var x=0;x<w;x++){var p=(y*w+x)*4;gray[y*w+x]=(data[p]*3+data[p+1]*6+data[p+2])/10;}
-  var best=null,bestScore=0,angles=48,cs=[];
-  for(var a=0;a<angles;a++){var an=2*Math.PI*a/angles;cs.push([Math.cos(an),Math.sin(an)]);}
-  function lum(x,y){x=Math.round(x);y=Math.round(y);if(x<2||y<2||x>=w-2||y>=h-2)return -1;return gray[y*w+x];}
-  var minRx=Math.round(w*.18),maxRx=Math.round(w*.47),minRy=Math.round(h*.18),maxRy=Math.round(h*.47);
-  var stepX=Math.max(5,Math.round(w*.045)),stepY=Math.max(4,Math.round(h*.055));
-  var stepRx=Math.max(4,Math.round(w*.025)),stepRy=Math.max(3,Math.round(h*.03));
-  for(var cy=Math.round(h*.18);cy<=h*.82;cy+=stepY){
-    for(var cx=Math.round(w*.18);cx<=w*.82;cx+=stepX){
-      for(var ry=minRy;ry<=maxRy;ry+=stepRy){
-        for(var rx=minRx;rx<=maxRx;rx+=stepRx){
-          var ratio=rx/ry;if(ratio<.68||ratio>1.62)continue;
-          var sum=0,covered=0;
-          for(var k=0;k<angles;k++){
-            var c=cs[k],px=cx+rx*c[0],py=cy+ry*c[1];
-            var v1=lum(px+2.5*c[0],py+2.5*c[1]),v0=lum(px-2.5*c[0],py-2.5*c[1]);
-            if(v1<0||v0<0)continue;
-            var d=Math.abs(v1-v0);sum+=d;if(d>18)covered++;
-          }
-          var coverage=covered/angles,score=(sum/angles)*(.55+.45*coverage);
-          if(coverage>.34&&score>bestScore){bestScore=score;best={cx:cx,cy:cy,rx:rx,ry:ry,score:score};}
-        }
-      }
-    }
-  }
-  if(!best||bestScore<13)return null;
-  return best;
-}
-
 function ell(cx,cy,rx,ry){vctx.beginPath();vctx.ellipse(cx,cy,Math.max(1,rx),Math.max(1,ry),0,0,Math.PI*2);vctx.stroke();}
 function overlay(){
   var g=vctx;g.save();g.lineWidth=Math.max(1,view.width/420);
-  if(S.cal||S.pendingCal){
-    var c=S.cal||S.pendingCal,rings=[[1,'rgba(255,255,255,.9)',[]],[0.84,'rgba(255,255,255,.4)',[4,4]],[1.05,'rgba(255,255,255,.4)',[4,4]],[1.75,'rgba(255,200,90,.6)',[2,6]]];
+  if(S.cal){
+    var c=S.cal,rings=[[1,'rgba(255,255,255,.9)',[]],[0.84,'rgba(255,255,255,.4)',[4,4]],[1.05,'rgba(255,255,255,.4)',[4,4]],[1.75,'rgba(255,200,90,.6)',[2,6]]];
     rings.forEach(function(q){g.strokeStyle=q[1];g.setLineDash(q[2]);ell(c.cx,c.cy,c.rx*q[0],c.ry*q[0]);});
     g.setLineDash([]);
+  }
+  if(S.auto&&!S.cal){
+    var d=S.det;
+    if(d&&d.ok){
+      var col=S.prop?'#19e0b4':'#ffcc33';
+      g.lineWidth=Math.max(2,view.width/260);
+      [[1,col,[]],[0.84,col,[4,4]],[1.05,col,[4,4]]].forEach(function(q){g.strokeStyle=q[1];g.setLineDash(q[2]);ell(d.cx,d.cy,d.rx*q[0],d.ry*q[0]);});
+      g.setLineDash([]);
+    }
+    var fr=S.fr;
+    if(fr&&!fr.good&&(fr.k==='esq'||fr.k==='dir'||fr.k==='cima'||fr.k==='baixo')){
+      var s=view.height*0.1,w=view.width,h=view.height,m=s*0.9,px,py,dx=0,dy=0;
+      if(fr.k==='esq'){px=m;py=h/2;dx=-1;}else if(fr.k==='dir'){px=w-m;py=h/2;dx=1;}else if(fr.k==='cima'){px=w/2;py=m;dy=-1;}else{px=w/2;py=h-m;dy=1;}
+      g.fillStyle='#ffcc33';g.strokeStyle='#000';g.lineWidth=2;g.beginPath();
+      g.moveTo(px+dx*s,py+dy*s);g.lineTo(px-dx*s*0.2-dy*s*0.9,py-dy*s*0.2-dx*s*0.9);g.lineTo(px-dx*s*0.2+dy*s*0.9,py-dy*s*0.2+dx*s*0.9);g.closePath();g.fill();g.stroke();
+    }
   }
   g.fillStyle='#ffcc33';g.strokeStyle='#000';
   S.taps.forEach(function(p){g.beginPath();g.arc(p[0],p[1],5,0,Math.PI*2);g.fill();g.stroke();});
@@ -513,22 +563,50 @@ function overlay(){
 }
 
 function ui(){
-  var has=!!S.mode;
-  $('btnRecal').disabled=!has||S.calStep===0&&!S.cal&&!S.pendingCal;
-  $('btnAssist').disabled=!has||S.autoCal;
-  $('btnManual').disabled=!has||S.autoCal;
-  $('btnConfirmCal').hidden=!S.pendingCal;
+  var has=!!S.mode,searching=has&&S.auto&&!S.cal;
+  $('btnRecal').disabled=!has||(S.auto&&!S.cal);
   $('btnStart').disabled=!S.cal||S.running;
   $('btnStop').disabled=!S.running;
+  $('autoRow').hidden=!searching;
+  $('btnConfirm').disabled=!S.prop;
+  $('fine').hidden=!(has&&S.cal&&!S.running);
   var gd=$('guide');
   if(!has)gd.innerHTML='Escolha a câmera (aponte para a tela da roleta) ou envie um vídeo gravado.';
-  else if(S.autoCal)gd.innerHTML='Calibração automática em andamento: mantenha a roleta inteira visível. Vou orientar os movimentos e pedir confirmação quando encontrar a posição.';
-  else if(S.pendingCal)gd.innerHTML='Enquadramento avaliado. Confira a posição da roleta e confirme para salvar a calibração.';
-  else if(S.calStep<4)gd.innerHTML=(S.assist?'Assistida — ':'Manual — ')+'ponto '+(S.calStep+1)+' de 4: toque na borda <b>'+LAB[S.calStep]+'</b> da roda (aro prateado, logo depois dos números).';
-  else if(!S.running)gd.innerHTML='Calibrado. Toque em <b>Iniciar rastreio</b> antes do lançamento. Os anéis tracejados mostram onde o app procura a bolinha.';
+  else if(searching){
+    if(S.prop)gd.innerHTML='<b>Posição boa.</b> Se a linha verde acompanha o aro dos números, toque em <b>Confirmar posição</b>.';
+    else gd.innerHTML='<b>'+(S.fr?S.fr.text:'Procurando a roda.')+'</b>';
+  }
+  else if(S.calStep<4)gd.innerHTML='Calibração '+(S.calStep+1)+' de 4: toque na borda <b>'+LAB[S.calStep]+'</b> da roda (aro prateado, logo depois dos números).';
+  else if(!S.running)gd.innerHTML='Calibrado. Use o <b>ajuste fino</b> se a linha branca não estiver sobre o aro dos números, depois toque em <b>Iniciar rastreio</b>.';
   else gd.innerHTML='Rastreando. Círculo vermelho: bolinha. Círculo verde: zero da roda.';
   live();
 }
+/* ===== Calibração automática: busca, aviso por voz e confirmação ===== */
+function say(t,force){
+  var now=Date.now();
+  if(!$('voice').checked||!window.speechSynthesis)return;
+  if(!force&&(t===S.said||now-S.saidAt<3500))return;
+  S.said=t;S.saidAt=now;
+  try{window.speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(t);u.lang='pt-BR';u.rate=1.05;window.speechSynthesis.speak(u);}catch(e){}
+}
+function autoTick(){
+  if(!S.mode||!S.auto||S.cal||S.running||vid.readyState<2||!view.width)return;
+  if(dcv.width!==view.width||dcv.height!==view.height){dcv.width=view.width;dcv.height=view.height;}
+  var d,img;
+  try{dctx.drawImage(vid,0,0,dcv.width,dcv.height);img=dctx.getImageData(0,0,dcv.width,dcv.height).data;}catch(e){return;}
+  d=detectWheel(img,dcv.width,dcv.height);
+  var fr=framing(d,dcv.width,dcv.height),before=!!S.prop;
+  S.det=d;S.fr=fr;
+  if(fr.good){S.good.push({cx:d.cx,cy:d.cy,rx:d.rx,ry:d.ry});if(S.good.length>6)S.good.shift();}
+  else S.good=[];
+  S.prop=fr.good?stableMean(S.good,dcv.width,dcv.height):null;
+  if(S.prop){if(!before)say('Posição encontrada. Confira a linha verde e toque em confirmar.',true);}
+  else if(before)say('A posição mudou. Segure o celular firme.',true);
+  else if(!fr.good||S.good.length<2)say(fr.text,false);
+  if(S.mode==='file'&&vid.paused)drawFrame();
+  ui();
+}
+setInterval(autoTick,260);
 function fmt(v){return v>0?(v/(Math.PI*2)).toFixed(2):'–';}
 function live(){
   var i=S.info;
@@ -589,5 +667,4 @@ $('fixBtn').addEventListener('click',function(){
 renderHist();ui();
 })();
 </script>
-
 </body></html>
