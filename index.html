@@ -85,6 +85,8 @@ th{font:600 11px var(--f-head);text-transform:uppercase;letter-spacing:.07em;col
       <button id="btnCam" type="button">Câmera</button>
       <label class="btn" for="file">Vídeo gravado</label>
       <input type="file" id="file" accept="video/*" hidden>
+      <label class="btn" for="photo">Calibrar com foto</label>
+      <input type="file" id="photo" accept="image/*" capture="environment" hidden>
       <label class="btn primary" for="rec">Gravar com a câmera</label>
       <input type="file" id="rec" accept="video/*" capture="environment" hidden>
       <button id="btnRecal" type="button" disabled>Refazer calibração</button>
@@ -404,19 +406,21 @@ vid.style.cssText='position:fixed;left:-9999px;top:0;width:2px;height:2px;opacit
 document.body.appendChild(vid);
 var LAB=['ESQUERDA','DIREITA','de CIMA','de BAIXO'];
 var REDS={1:1,3:1,5:1,7:1,9:1,12:1,14:1,16:1,18:1,19:1,21:1,23:1,25:1,27:1,30:1,32:1,34:1,36:1};
-var S={mode:null,calStep:0,taps:[],cal:null,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null,
+var S={mode:null,calStep:0,taps:[],cal:null,photoCalNorm:null,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null,
   auto:true,det:null,fr:null,good:[],prop:null,said:'',saidAt:0,drag:null};
+var photoImg=null;
 var dcv=document.createElement('canvas'),dctx=dcv.getContext('2d',{willReadFrequently:true});
 var hist=(function(){try{var j=JSON.parse(localStorage.getItem('rr-hist-v1')||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
 function save(){try{localStorage.setItem('rr-hist-v1',JSON.stringify(hist));}catch(e){}}
 function msg(t){var m=$('msg');m.textContent=t||'';m.hidden=!t;}
 function cls(n){return n===0?'n-green':(REDS[n]?'n-red':'n-black');}
 
-function stopSource(){
+function stopSource(keepPhotoCal){
+  var savedPhotoCal=keepPhotoCal?S.photoCalNorm:null;
   S.running=false;S.eng=null;S.info=null;
   if(vid.srcObject){vid.srcObject.getTracks().forEach(function(t){t.stop();});vid.srcObject=null;}
   try{vid.pause();}catch(e){}
-  S.calStep=0;S.taps=[];S.cal=null;S.last=null;
+  S.calStep=0;S.taps=[];S.cal=null;S.last=null;S.photoCalNorm=savedPhotoCal;
   resetAuto();
 }
 function resetAuto(){S.auto=true;S.det=null;S.fr=null;S.good=[];S.prop=null;S.said='';}
@@ -427,16 +431,40 @@ function sizeCanvas(){
 }
 function drawFrame(){
   if(!S.mode)return;
-  try{vctx.drawImage(vid,0,0,view.width,view.height);}catch(e){}
+  try{
+    if(S.mode==='photo'&&photoImg)vctx.drawImage(photoImg,0,0,view.width,view.height);
+    else vctx.drawImage(vid,0,0,view.width,view.height);
+  }catch(e){}
   overlay();
 }
+function savePhotoCal(){
+  if(S.mode==='photo'&&S.cal&&view.width&&view.height){
+    S.photoCalNorm={cx:S.cal.cx/view.width,cy:S.cal.cy/view.height,rx:S.cal.rx/view.width,ry:S.cal.ry/view.height};
+  }
+}
+function loadPhoto(e){
+  var f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;
+  msg('');stopSource();S.photoCalNorm=null;S.auto=false;photoImg=new Image();
+  photoImg.onload=function(){
+    var pw=Math.min(512,photoImg.naturalWidth||512);
+    view.width=pw;view.height=Math.round((photoImg.naturalHeight||288)*pw/(photoImg.naturalWidth||512));
+    S.mode='photo';S.calStep=0;S.taps=[];S.cal=null;
+    $('empty').hidden=true;drawFrame();ui();
+    $('guide').innerHTML='Foto carregada. Toque em <b>Calibrar manualmente</b> e marque esquerda, direita, cima e baixo do aro dos números. Depois ajuste os pontos amarelos.';
+  };
+  photoImg.onerror=function(){msg('Não consegui abrir essa foto. Tente outra imagem.');};
+  photoImg.src=URL.createObjectURL(f);
+}
+$('photo').addEventListener('change',loadPhoto);
 async function useCam(){
   msg('');
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){msg('Esta página não libera a câmera ao vivo. Use "Gravar com a câmera" para filmar o giro e analisar em seguida.');return;}
   try{
     var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:60}},audio:false});
-    stopSource();vid.srcObject=st;await vid.play();
-    S.mode='cam';sizeCanvas();loop();ui();
+    stopSource(true);vid.srcObject=st;await vid.play();
+    S.mode='cam';sizeCanvas();
+    if(S.photoCalNorm){var n=S.photoCalNorm;S.cal={cx:n.cx*view.width,cy:n.cy*view.height,rx:n.rx*view.width,ry:n.ry*view.height};S.calStep=4;S.taps=[];S.auto=false;S.photoCalNorm=null;msg('Calibração da foto aplicada. Confira o alinhamento com a câmera e faça o ajuste fino, se necessário.');}
+    loop();ui();
   }catch(e){
     msg('Câmera indisponível aqui ('+(e&&e.name?e.name:'erro')+'). Use "Gravar com a câmera" para filmar o giro e analisar em seguida.');
   }
@@ -474,6 +502,7 @@ view.addEventListener('pointerdown',function(e){
     else{S.cal=cal;msg('');}
   }
   if(S.mode==='file'&&vid.paused)drawFrame();
+  if(S.mode==='photo'){savePhotoCal();drawFrame();}
   ui();
 });
 view.addEventListener('pointermove',function(e){
@@ -484,9 +513,10 @@ view.addEventListener('pointermove',function(e){
   else if(d.type==='right'){S.cal.cx=c.cx+dx/2;S.cal.rx=Math.max(12,c.rx+dx/2);}
   else if(d.type==='top'){S.cal.cy=c.cy+dy/2;S.cal.ry=Math.max(10,c.ry-dy/2);}
   else if(d.type==='bottom'){S.cal.cy=c.cy+dy/2;S.cal.ry=Math.max(10,c.ry+dy/2);}
+  if(S.mode==='photo')savePhotoCal();
   e.preventDefault();
 });
-function endCalDrag(){S.drag=null;if(S.mode==='file'&&vid.paused)drawFrame();ui();}
+function endCalDrag(){S.drag=null;if(S.mode==='file'&&vid.paused)drawFrame();if(S.mode==='photo'){savePhotoCal();drawFrame();}ui();}
 view.addEventListener('pointerup',endCalDrag);
 view.addEventListener('pointercancel',endCalDrag);
 $('btnRecal').addEventListener('click',function(){if(S.running)stop();S.calStep=0;S.taps=[];S.cal=null;resetAuto();say('Procurando a roda de novo.',true);if(S.mode==='file'&&vid.paused)drawFrame();ui();});
@@ -503,11 +533,13 @@ $('fine').addEventListener('click',function(e){
   if(a==='l')c.cx-=st;else if(a==='r')c.cx+=st;else if(a==='u')c.cy-=st;else if(a==='d')c.cy+=st;
   else if(a==='plus'){c.rx*=1.01;c.ry*=1.01;}else if(a==='minus'){c.rx/=1.01;c.ry/=1.01;}
   if(S.mode==='file'&&vid.paused)drawFrame();
+  if(S.mode==='photo'){savePhotoCal();drawFrame();}
 });
 $('thr').addEventListener('input',function(){S.thr=+this.value;$('thrv').textContent=this.value;if(S.eng)S.eng.thr=S.thr;});
 $('mirror').addEventListener('change',function(){S.mirror=this.checked;if(S.eng)S.eng.mirror=S.mirror;});
 
 function start(){
+  if(S.mode==='photo'){msg('A foto serve para calibrar. Agora abra a câmera para conferir a marcação e iniciar o rastreio.');return;}
   if(!S.cal)return;
   S.eng=new Engine(view.width,view.height,S.cal,{thr:S.thr,mirror:S.mirror,hist:hist,onEnd:onEnd});
   S.running=true;S.lastT=-1;S.info=null;msg('');
@@ -538,7 +570,7 @@ function loop(){
   sched();
 }
 function onFrame(t){
-  if(!S.mode||t===S.lastT)return;
+  if(!S.mode||S.mode==='photo'||t===S.lastT)return;
   S.lastT=t;
   try{vctx.drawImage(vid,0,0,view.width,view.height);}catch(e){return;}
   if(S.running&&S.eng){
@@ -604,7 +636,9 @@ function ui(){
     if(S.prop)gd.innerHTML='<b>Posição boa.</b> Se a linha verde acompanha o aro dos números, toque em <b>Confirmar posição</b>.';
     else gd.innerHTML='<b>'+(S.fr?S.fr.text:'Procurando a roda.')+'</b>';
   }
+  else if(S.mode==='photo'&&S.calStep<4)gd.innerHTML='Foto carregada. Calibração '+(S.calStep+1)+' de 4: toque na borda <b>'+LAB[S.calStep]+'</b> do aro dos números.';
   else if(S.calStep<4)gd.innerHTML='Calibração '+(S.calStep+1)+' de 4: toque na borda <b>'+LAB[S.calStep]+'</b> da roda (aro prateado, logo depois dos números).';
+  else if(S.mode==='photo'&&!S.running)gd.innerHTML='Foto calibrada. <b>Abra a câmera</b> para aplicar a marcação. A foto e a câmera precisam estar no mesmo ângulo e distância.';
   else if(!S.running)gd.innerHTML='Calibrado. <b>Arraste o centro da marcação</b> para mover a roleta; arraste os quatro pontos amarelos para ajustar largura e altura. Também pode usar os botões de ajuste fino. Quando os anéis estiverem alinhados ao aro dos números, toque em <b>Iniciar rastreio</b>.';
   else gd.innerHTML='Rastreando. Círculo vermelho: bolinha. Círculo verde: zero da roda.';
   live();
