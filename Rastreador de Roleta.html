@@ -84,6 +84,9 @@ th{font:600 11px var(--f-head);text-transform:uppercase;letter-spacing:.07em;col
       <label class="btn" for="file">Vídeo gravado</label>
       <input type="file" id="file" accept="video/*" hidden>
       <button id="btnRecal" type="button" disabled>Refazer calibração</button>
+      <button id="btnAssist" type="button">Calibração assistida</button>
+      <button id="btnManual" type="button">Calibração manual</button>
+      <button id="btnConfirmCal" class="primary" type="button" hidden>Confirmar calibração</button>
     </div>
     <p class="guide" id="guide">Escolha a câmera (aponte para a tela da roleta) ou envie um vídeo gravado.</p>
     <p class="msg" id="msg" hidden></p>
@@ -325,10 +328,11 @@ vid.style.cssText='position:fixed;left:-9999px;top:0;width:2px;height:2px;opacit
 document.body.appendChild(vid);
 var LAB=['ESQUERDA','DIREITA','de CIMA','de BAIXO'];
 var REDS={1:1,3:1,5:1,7:1,9:1,12:1,14:1,16:1,18:1,19:1,21:1,23:1,25:1,27:1,30:1,32:1,34:1,36:1};
-var S={mode:null,calStep:0,taps:[],cal:null,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null};
+var S={mode:null,calStep:0,taps:[],cal:null,pendingCal:null,assist:true,eng:null,running:false,loopOn:false,lastT:-1,lastUI:0,info:null,mirror:false,thr:185,last:null};
 var hist=(function(){try{var j=JSON.parse(localStorage.getItem('rr-hist-v1')||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
 function save(){try{localStorage.setItem('rr-hist-v1',JSON.stringify(hist));}catch(e){}}
 function msg(t){var m=$('msg');m.textContent=t||'';m.hidden=!t;}
+function say(t){try{if('speechSynthesis' in window){window.speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(t);u.lang='pt-BR';u.rate=1;window.speechSynthesis.speak(u);}}catch(e){}}
 function cls(n){return n===0?'n-green':(REDS[n]?'n-red':'n-black');}
 
 function stopSource(){
@@ -369,20 +373,32 @@ vid.addEventListener('seeked',function(){if(vid.paused)drawFrame();});
 vid.addEventListener('ended',function(){if(S.running){stop();msg('O vídeo terminou.');}});
 
 view.addEventListener('pointerdown',function(e){
-  if(!S.mode||S.running||S.calStep>=4)return;
+  if(!S.mode||S.running||S.calStep>=4||S.pendingCal)return;
   var r=view.getBoundingClientRect();
   var x=(e.clientX-r.left)*view.width/r.width,y=(e.clientY-r.top)*view.height/r.height;
   S.taps.push([x,y]);S.calStep++;
   if(S.calStep===4){
     var L=S.taps[0],R=S.taps[1],T=S.taps[2],B=S.taps[3];
     var cal={cx:(L[0]+R[0])/2,cy:(T[1]+B[1])/2,rx:Math.abs(R[0]-L[0])/2,ry:Math.abs(B[1]-T[1])/2};
-    if(cal.rx<20||cal.ry<10){S.calStep=0;S.taps=[];msg('Os pontos ficaram muito próximos. Refaça a calibração.');}
-    else{S.cal=cal;msg('');}
+    if(cal.rx<20||cal.ry<10){S.calStep=0;S.taps=[];msg('Os pontos ficaram muito próximos. Marque novamente as quatro bordas.');say('Os pontos ficaram muito próximos. Marque novamente as quatro bordas.');}
+    else if(S.assist){
+      var dx=(cal.cx-view.width/2)/view.width,dy=(cal.cy-view.height/2)/view.height;
+      var sx=cal.rx/view.width,sy=cal.ry/view.height,advice=[];
+      if(Math.abs(dx)>0.09)advice.push(dx>0?'centralize a roleta mais à esquerda no enquadramento':'centralize a roleta mais à direita no enquadramento');
+      if(Math.abs(dy)>0.10)advice.push(dy>0?'centralize a roleta mais acima no enquadramento':'centralize a roleta mais abaixo no enquadramento');
+      if(sx<0.22||sy<0.22)advice.push('aproxime a câmera um pouco');
+      if(sx>0.47||sy>0.47)advice.push('afaste a câmera um pouco');
+      if(advice.length){var tip='Ajuste o enquadramento: '+advice.join('; ')+'. Depois marque as quatro bordas novamente.';S.calStep=0;S.taps=[];S.cal=null;msg(tip);say(tip);}
+      else{S.pendingCal=cal;msg('Enquadramento adequado. Confira os anéis na imagem e toque em “Confirmar calibração” para salvar.');say('Enquadramento adequado. Confira a imagem e confirme a calibração para salvar.');}
+    }else{S.cal=cal;msg('Calibração manual concluída.');}
   }
   if(S.mode==='file'&&vid.paused)drawFrame();
   ui();
 });
-$('btnRecal').addEventListener('click',function(){if(S.running)stop();S.calStep=0;S.taps=[];S.cal=null;if(S.mode==='file'&&vid.paused)drawFrame();ui();});
+$('btnRecal').addEventListener('click',function(){if(S.running)stop();S.calStep=0;S.taps=[];S.cal=null;S.pendingCal=null;msg('');if(S.mode==='file'&&vid.paused)drawFrame();ui();});
+$('btnAssist').addEventListener('click',function(){S.assist=true;S.calStep=0;S.taps=[];S.cal=null;S.pendingCal=null;msg('Modo assistido: marque esquerda, direita, cima e baixo da roda. Vou avaliar o enquadramento antes de salvar.');say('Calibração assistida ativada. Marque as quatro bordas da roleta.');ui();});
+$('btnManual').addEventListener('click',function(){S.assist=false;S.calStep=0;S.taps=[];S.cal=null;S.pendingCal=null;msg('Modo manual ativado. A calibração será salva assim que marcar os quatro pontos.');say('Calibração manual ativada.');ui();});
+$('btnConfirmCal').addEventListener('click',function(){if(!S.pendingCal)return;S.cal=S.pendingCal;S.pendingCal=null;msg('Calibração confirmada e salva nesta sessão.');say('Calibração confirmada. Você já pode iniciar o rastreio.');ui();});
 $('thr').addEventListener('input',function(){S.thr=+this.value;$('thrv').textContent=this.value;if(S.eng)S.eng.thr=S.thr;});
 $('mirror').addEventListener('change',function(){S.mirror=this.checked;if(S.eng)S.eng.mirror=S.mirror;});
 
@@ -449,12 +465,16 @@ function overlay(){
 
 function ui(){
   var has=!!S.mode;
-  $('btnRecal').disabled=!has||S.calStep===0&&!S.cal;
+  $('btnRecal').disabled=!has||S.calStep===0&&!S.cal&&!S.pendingCal;
+  $('btnAssist').disabled=!has||S.assist;
+  $('btnManual').disabled=!has||!S.assist;
+  $('btnConfirmCal').hidden=!S.pendingCal;
   $('btnStart').disabled=!S.cal||S.running;
   $('btnStop').disabled=!S.running;
   var gd=$('guide');
   if(!has)gd.innerHTML='Escolha a câmera (aponte para a tela da roleta) ou envie um vídeo gravado.';
-  else if(S.calStep<4)gd.innerHTML='Calibração '+(S.calStep+1)+' de 4: toque na borda <b>'+LAB[S.calStep]+'</b> da roda (aro prateado, logo depois dos números).';
+  else if(S.pendingCal)gd.innerHTML='Enquadramento avaliado. Confira a posição da roleta e confirme para salvar a calibração.';
+  else if(S.calStep<4)gd.innerHTML=(S.assist?'Assistida — ':'Manual — ')+'ponto '+(S.calStep+1)+' de 4: toque na borda <b>'+LAB[S.calStep]+'</b> da roda (aro prateado, logo depois dos números).';
   else if(!S.running)gd.innerHTML='Calibrado. Toque em <b>Iniciar rastreio</b> antes do lançamento. Os anéis tracejados mostram onde o app procura a bolinha.';
   else gd.innerHTML='Rastreando. Círculo vermelho: bolinha. Círculo verde: zero da roda.';
   live();
