@@ -448,8 +448,8 @@ function onFrame(t){
 function ell(cx,cy,rx,ry){vctx.beginPath();vctx.ellipse(cx,cy,Math.max(1,rx),Math.max(1,ry),0,0,Math.PI*2);vctx.stroke();}
 function overlay(){
   var g=vctx;g.save();g.lineWidth=Math.max(1,view.width/420);
-  if(S.cal){
-    var c=S.cal,rings=[[1,'rgba(255,255,255,.9)',[]],[0.84,'rgba(255,255,255,.4)',[4,4]],[1.05,'rgba(255,255,255,.4)',[4,4]],[1.75,'rgba(255,200,90,.6)',[2,6]]];
+  if(S.cal||S.pendingCal){
+    var c=S.cal||S.pendingCal,rings=[[1,'rgba(255,255,255,.9)',[]],[0.84,'rgba(255,255,255,.4)',[4,4]],[1.05,'rgba(255,255,255,.4)',[4,4]],[1.75,'rgba(255,200,90,.6)',[2,6]]];
     rings.forEach(function(q){g.strokeStyle=q[1];g.setLineDash(q[2]);ell(c.cx,c.cy,c.rx*q[0],c.ry*q[0]);});
     g.setLineDash([]);
   }
