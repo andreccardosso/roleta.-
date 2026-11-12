@@ -133,8 +133,8 @@ th{font:600 11px var(--f-head);text-transform:uppercase;letter-spacing:.07em;col
     <p class="note">A câmera localiza automaticamente a luz verde fixa, acompanha sua cor e detecta o ponto inicial da bolinha em relação à referência do Y. Se não reconhecer algum dado, descarta o giro e continua observando.</p>
     <p class="guide" id="sensorGuide" aria-live="polite">Aguardando a câmera localizar a luz do sensor e o ponto de partida da bolinha.</p>
     <div class="metrics" style="margin-top:10px">
-      <div class="m"><span>Partida da bolinha</span><b id="ballStartSide" style="font-size:16px">não identificada</b></div>
-      <div class="m"><span>Referência C</span><b id="ballOppositeSide" style="font-size:16px">—</b></div>
+      <div class="m"><span>Posição da bolinha no Y</span><b id="ballStartSide" style="font-size:16px">não identificada</b></div>
+      <div class="m"><span>Referência A</span><b id="ballOppositeSide" style="font-size:16px">frente do crupiê</b></div>
     </div>
     <div class="metrics" style="margin-top:10px">
       <div class="m"><span>Luz reconhecida</span><b id="sensorColor" style="font-size:16px">não marcada</b></div>
@@ -526,11 +526,11 @@ function updateSensorUI(){
   $('sensorColor').textContent=S.sensorColor==='green'?'verde':(S.sensorColor==='orange'?'laranja':(S.sensorROI?'não identificado':'procurando'));
   $('sensorRounds').textContent=Math.min(S.sensorRounds,2)+'/2';
   $('sensorGate').textContent=S.sensorValidated?'validado':'bloqueada';
-  $('sensorRegion').textContent=S.ballStartSide?(S.ballStartSide==='A'?'C · direita':'C · esquerda'):'—';
+  $('sensorRegion').textContent=S.ballStartSide||'—';
   $('ballStartSide').textContent=S.ballStartSide||'não identificada';
-  $('ballOppositeSide').textContent=S.ballStartSide?(S.ballStartSide==='A'?'C · direita':'C · esquerda'):'—';
-  $('sensorStatus').textContent=S.sensorRounds<2?'Observação automática '+(S.sensorRounds+1)+' de 2: sem sinal.':
-    (S.sensorValidated?'Sensor mudou de verde para laranja. Sinal liberado para análise.':'Aguardando mudança confirmada de verde para laranja.');
+  $('ballOppositeSide').textContent='A · frente do crupiê';
+  $('sensorStatus').textContent=S.sensorRounds<2?'Observação automática '+(S.sensorRounds+1)+' de 2: aguardando leitura do sensor inferior.':
+    (S.sensorValidated?'Mudança real do sensor inferior: verde → laranja, registrada para validação.':'Sensor inferior: aguardando mudança real de verde para laranja.');
 }
 function processSensor(){
   if(!S.sensorROI)autoFindSensor();
@@ -539,7 +539,7 @@ function processSensor(){
   if(color!=='unknown'){
     if(S.sensorPrev==='green'&&color==='orange'){
       S.sensorTransitionSeen=true;
-      if(S.sensorRounds>=2&&S.ballStartSide)S.sensorValidated=true;
+      if(S.sensorRounds>=2)S.sensorValidated=true;
     }
     S.sensorPrev=color;S.sensorColor=color;
   }
@@ -636,21 +636,22 @@ $('btnClear').addEventListener('click',function(){hist.spins=[];hist.crit=[];S.l
 
 function onBallStart(bd){
   S.ballStartSide=null;
-  if(!S.sensorROI||!S.cal)return;
-  var sx=S.sensorROI.x*view.width,sy=S.sensorROI.y*view.height;
-  var sensorA=Math.atan2((sy-S.cal.cy)/S.cal.ry,(sx-S.cal.cx)/S.cal.rx);
-  var delta=wrapPi(bd.ang-sensorA);
-  if(Math.abs(delta)<0.18||Math.abs(delta)>Math.PI-0.18){
-    $('sensorGuide').textContent='Partida sobre a linha de referência: não identificada. O próximo giro será analisado.';
+  if(!S.cal||!bd||!Number.isFinite(bd.ang))return;
+  // A é a ponta inferior do Y, voltada para a frente do crupiê.
+  // Com A embaixo da imagem: esquerda = B e direita = C.
+  var xSide=Math.cos(bd.ang);
+  if(Math.abs(xSide)<0.08){
+    $('sensorGuide').textContent='Bolinha alinhada à referência A; aguardando posição lateral B ou C.';
     updateSensorUI();return;
   }
-  S.ballStartSide=delta>0?'A':'B';
-  $('sensorGuide').textContent='Partida '+S.ballStartSide+' detectada. Região C oposta: '+(S.ballStartSide==='A'?'direita':'esquerda')+'.';
+  if(S.mirror)xSide=-xSide;
+  S.ballStartSide=xSide<0?'B':'C';
+  $('sensorGuide').textContent='Bolinha identificada no lado '+S.ballStartSide+' do Y. A permanece como referência à frente do crupiê.';
   updateSensorUI();
 }
 function onEnd(e){
   S.last=e;S.sensorRounds++;
-  S.sensorValidated=false;S.sensorTransitionSeen=false;S.ballStartSide=null;
+  S.sensorValidated=false;S.sensorTransitionSeen=false;
   save();renderHist();ui();updateSensorUI();
 }
 
@@ -781,7 +782,7 @@ function live(){
   $('rPhase').textContent=ph;
   var p=i&&i.pred;
   $('rEta').innerHTML=(p&&i.phase==='pista')?'queda em ~'+Math.max(0,(p.D-(i.t-p.t))).toFixed(1)+' s':'&nbsp;';
-  var allowed=S.sensorRounds>=2&&S.sensorValidated&&!!S.ballStartSide;
+  var allowed=S.sensorRounds>=2&&S.sensorValidated;
   renderPred(allowed?p:null,i&&i.dropped);
   updateSensorUI();
 }
@@ -798,7 +799,7 @@ function renderPred(p,frozen){
     $('zone').innerHTML=h;
   }
   var q=$('qual');
-  if(!p){q.className='qual warn';q.textContent=S.sensorRounds<2?'Observação automática: aguardando completar duas rodadas, sem indicação.':(!S.sensorROI?'Câmera procurando a luz verde do sensor.':(!S.ballStartSide?'Partida da bolinha não identificada; aguardando próximo giro.':'Aguardando mudança do sensor de verde para laranja.'));return;}
+  if(!p){q.className='qual warn';q.textContent=S.sensorRounds<2?'Observação automática: aguardando completar duas rodadas e acompanhar o sensor inferior.':(!S.sensorROI?'Câmera procurando a luz do sensor inferior.':(!S.sensorValidated?'Aguardando a mudança real do sensor inferior de verde para laranja.':'Validação registrada; aguardando dados suficientes da trajetória.'));return;}
   if(!mdl.ready){q.className='qual warn';q.textContent='Aprendendo: '+mdl.n+' de 5 giros completos medidos. Até lá a zona é larga e sem ajuste.';}
   else if(mdl.R<0.35){q.className='qual warn';q.textContent='Com '+mdl.n+' giros, o erro está muito espalhado. A estimativa ainda não passa de palpite.';}
   else{q.className='qual good';q.textContent='Com '+mdl.n+' giros, o erro está concentrado (índice '+mdl.R.toFixed(2)+'). A zona foi ajustada por esses giros.';}
