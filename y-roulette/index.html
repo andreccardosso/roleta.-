@@ -23,7 +23,7 @@
 <div class="status"><span id="sensorDot" class="dot"></span><span id="sensorText">Sensor não calibrado</span></div>
 <div class="calibration" id="roiText">Área do sensor: não definida</div>
 </div>
-<div class="hint" style="margin-top:8px">O sensor precisa ser visto com nitidez. Reflexos, movimento, sombra ou o sensor sair do enquadramento podem interromper a leitura. O gatilho válido é uma transição detectada de verde para laranja.</div>
+<div class="hint" style="margin-top:8px">O sensor precisa estar nítido e enquadrado. A leitura usa maioria de pixels da área marcada e exige 5 quadros consecutivos da mesma cor; após 30 quadros sem leitura, a referência verde é descartada. O gatilho só ocorre com verde confirmado seguido de laranja confirmado.</div>
 </section>
 
 <section class="panel">
@@ -68,7 +68,7 @@ const ORDER=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20
 const REDS=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
 const $=id=>document.getElementById(id);
 const video=$('video'),sample=$('sample'),ctx=sample.getContext('2d',{willReadFrequently:true});
-let stream=null,roi=null,selectingRoi=false,raf=0,lastColor='unknown',armed=false,greenSeen=false,lastTrigger=0,history=[],armedLaunch=null,armedSector=null;
+let stream=null,roi=null,selectingRoi=false,raf=0,lastColor='unknown',candidateColor='unknown',candidateFrames=0,unknownFrames=0,armed=false,greenSeen=false,lastTrigger=0,history=[],armedLaunch=null,armedSector=null;
 function loadCalibration(){
  try{
   const saved=JSON.parse(localStorage.getItem('y-roulette-calibration-v1')||'{}'),clean={};
@@ -121,23 +121,60 @@ function setSensor(color,label){
 }
 function classify(r,g,b){
  const max=Math.max(r,g,b),min=Math.min(r,g,b),sat=max?((max-min)/max):0;
- if(g>65 && g>r*1.22 && g>b*1.12 && sat>.28)return 'green';
- if(r>100 && r>g*1.18 && g>b*1.15 && sat>.25)return 'orange';
+ if(g>65 &function classifyPatch(data){
+ let green=0,orange=0;
+ for(let i=0;i<data.length;i+=4){
+  const color=classify(data[i],data[i+1],data[i+2]);
+  if(color==='green')green++;
+  else if(color==='orange')orange++;
+ }
+ const valid=green+orange;
+ if(valid<Math.ceil((data.length/4)*.35))return 'unknown';
+ if(green/valid>=.7)return 'green';
+ if(orange/valid>=.7)return 'orange';
  return 'unknown';
+}
+function processSensorColor(detected){
+ if(detected==='unknown'){
+  candidateColor='unknown';candidateFrames=0;unknownFrames++;
+  if(unknownFrames>=30&&lastColor!=='unknown'){
+   lastColor='unknown';greenSeen=false;
+   setSensor('unknown','Sem leitura estável — aguardando novo verde');
+  }
+  return;
+ }
+ unknownFrames=0;
+ if(candidateColor===detected)candidateFrames++;
+ else{candidateColor=detected;candidateFrames=1}
+ if(candidateFrames<5||lastColor===detected)return;
+ const previous=lastColor;
+ lastColor=detected;
+ if(detected==='green'){
+  greenSeen=true;
+  setSensor('green','Sensor verde confirmado — aguardando mudança');
+ }else{
+  const validTransition=previous==='green'&&greenSeen&&armed&&Date.now()-lastTrigger>1800;
+  if(validTransition){
+   lastTrigger=Date.now();
+   triggerSignal();
+   setSensor('orange','Transição verde → laranja confirmada');
+  }else{
+   setSensor('orange',armed?'Laranja estável, mas sem transição válida':'Sensor laranja — não armado');
+  }
+ }
 }
 function sampleSensor(){
  if(!stream||!roi||video.readyState<2){raf=requestAnimationFrame(sampleSensor);return}
  try{
   ctx.drawImage(video,0,0,sample.width,sample.height);
   const x=Math.max(0,Math.min(sample.width-1,Math.round(roi.x*sample.width))),y=Math.max(0,Math.min(sample.height-1,Math.round(roi.y*sample.height)));
-  const d=ctx.getImageData(Math.max(0,x-3),Math.max(0,y-3),Math.min(7,sample.width-Math.max(0,x-3)),Math.min(7,sample.height-Math.max(0,y-3))).data;
-  let r=0,g=0,b=0,c=0;for(let i=0;i<d.length;i+=4){r+=d[i];g+=d[i+1];b+=d[i+2];c++}
-  const detected=classify(r/c,g/c,b/c);
-  if(detected==='green'){greenSeen=true;if(lastColor!=='green')setSensor('green','Sensor verde — aguardando mudança');}
-  else if(detected==='orange'){
-    if(lastColor==='green'&&greenSeen&&armed&&Date.now()-lastTrigger>1800){lastTrigger=Date.now();triggerSignal()}
-    setSensor('orange','Sensor laranja — '+(armed?'mudança detectada':'não armado'));
-  }else{setSensor('unknown','Sensor não identificado — confira a área');}
+  const sx=Math.max(0,Math.min(sample.width-7,x-3)),sy=Math.max(0,Math.min(sample.height-7,y-3));
+  const data=ctx.getImageData(sx,sy,7,7).data;
+  processSensorColor(classifyPatch(data));
+ }catch(e){processSensorColor('unknown')}
+ raf=requestAnimationFrame(sampleSensor);
+}
+');}
   lastColor=detected;
  }catch(e){setSensor('unknown','Falha na leitura do sensor')}
  raf=requestAnimationFrame(sampleSensor);
@@ -149,7 +186,7 @@ async function startCamera(){
 function stopCamera(){cancelAnimationFrame(raf);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;$('startCam').disabled=false;$('stopCam').disabled=true;$('setRoi').disabled=true;setSensor('unknown','Câmera desligada')}
 $('startCam').onclick=startCamera;$('stopCam').onclick=stopCamera;
 $('setRoi').onclick=()=>{selectingRoi=true;$('roiText').textContent='Toque sobre o sensor verde no vídeo';$('video').style.cursor='crosshair'};
-video.addEventListener('click',e=>{if(!selectingRoi)return;const r=video.getBoundingClientRect();const vw=video.videoWidth,vh=video.videoHeight;if(!vw||!vh)return;const scale=Math.min(r.width/vw,r.height/vh);const w=vw*scale,h=vh*scale;const left=r.left+(r.width-w)/2,top=r.top+(r.height-h)/2;const px=e.clientX-left,py=e.clientY-top;if(px<0||py<0||px>w||py>h){$('roiText').textContent='Toque dentro da imagem da roleta, não na faixa preta';return}roi={x:px/w,y:py/h};selectingRoi=false;video.style.cursor='default';$('roiText').textContent='Sensor calibrado · '+Math.round(roi.x*100)+'%, '+Math.round(roi.y*100)+'%';lastColor='unknown';greenSeen=false;setSensor('unknown','Aguardando sensor verde')});
+video.addEventListener('click',e=>{if(!selectingRoi)return;const r=video.getBoundingClientRect();const vw=video.videoWidth,vh=video.videoHeight;if(!vw||!vh)return;const scale=Math.min(r.width/vw,r.height/vh);const w=vw*scale,h=vh*scale;const left=r.left+(r.width-w)/2,top=r.top+(r.height-h)/2;const px=e.clientX-left,py=e.clientY-top;if(px<0||py<0||px>w||py>h){$('roiText').textContent='Toque dentro da imagem da roleta, não na faixa preta';return}roi={x:px/w,y:py/h};selectingRoi=false;video.style.cursor='default';$('roiText').textContent='Sensor calibrado · '+Math.round(roi.x*100)+'%, '+Math.round(roi.y*100)+'%';lastColor='unknown';candidateColor='unknown';candidateFrames=0;unknownFrames=0;greenSeen=false;setSensor('unknown','Aguardando sensor verde confirmado')});
 function arm(){
  if(!stream||!roi){$('armStatus').textContent='Ative a câmera e marque a área do sensor';return}
  const sector=$('launchSector').value;
@@ -160,7 +197,7 @@ function arm(){
  $('validBadge').textContent='AGUARDANDO';$('validBadge').style.borderColor='#20b879';
 }
 $('arm').onclick=arm;
-$('resetSensor').onclick=()=>{armed=false;armedLaunch=null;armedSector=null;greenSeen=lastColor==='green';$('armStatus').textContent='Validação reiniciada';$('validBadge').textContent='SEM SINAL';$('validBadge').style.borderColor='';$('mainNumber').textContent='—';$('targetInfo').textContent='Aguardando novo lançamento validado';$('numbers').innerHTML=''};
+$('resetSensor').onclick=()=>{armed=false;armedLaunch=null;armedSector=null;candidateColor='unknown';candidateFrames=0;unknownFrames=0;greenSeen=lastColor==='green';$('armStatus').textContent='Validação reiniciada';$('validBadge').textContent='SEM SINAL';$('validBadge').style.borderColor='';$('mainNumber').textContent='—';$('targetInfo').textContent='Aguardando novo lançamento validado';$('numbers').innerHTML=''};
 $('saveCalibration').onclick=saveCalibration;$('clearCalibration').onclick=clearCalibration;
 function triggerSignal(){
  armed=false;
