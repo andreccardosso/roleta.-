@@ -1,303 +1,180 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#101820"><title>Y Roulette Analyzer</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101820">
+<title>Roleta · Análise de Movimento</title>
 <style>
-:root{color-scheme:dark;--bg:#0b1117;--panel:#141e28;--panel2:#1b2935;--line:#2b3b49;--text:#edf3f7;--muted:#9aabb8;--accent:#e4b85d;--green:#20b879;--orange:#f39a38;--red:#dc514d}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:980px;margin:auto;padding:18px 14px 40px}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}h1{font-size:23px;margin:0}h2{font-size:17px;margin:0 0 12px}.sub{color:var(--muted);font-size:13px;margin-top:4px}.tag{border:1px solid #806b3b;color:#f3d58d;border-radius:99px;padding:5px 9px;font-size:11px;white-space:nowrap}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.muted{color:var(--muted)}button,select,input{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}button{cursor:pointer;font-weight:650}button.primary{background:var(--accent);color:#211a0c;border:0}button:disabled{opacity:.45;cursor:not-allowed}select{min-width:0}label{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}.field{min-width:0;flex:1}video{display:block;width:100%;max-height:440px;object-fit:contain;background:#05080b;border-radius:12px}canvas#overlay{display:none}.videoWrap{position:relative}.videoHint{font-size:12px;color:var(--muted);margin-top:8px}.status{display:inline-flex;align-items:center;gap:7px;border-radius:99px;padding:7px 11px;background:var(--panel2);font-size:13px}.dot{width:10px;height:10px;border-radius:50%;background:#788896}.dot.green{background:var(--green);box-shadow:0 0 12px #20b87988}.dot.orange{background:var(--orange);box-shadow:0 0 12px #f39a3888}.dot.red{background:var(--red)}.big{font-size:30px;font-weight:800;letter-spacing:-1px}.result{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px}.numbers{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:12px}.pocket{padding:9px 2px;text-align:center;border-radius:9px;font-weight:800;border:2px solid transparent}.pocket small{display:block;font-size:9px;font-weight:600;opacity:.8}.pocket.main{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}.black{background:#202a32;color:white}.red{background:#c63b38;color:white}.zero{background:#13825f;color:white}.hint{font-size:12px;line-height:1.45;color:var(--muted)}.history{width:100%;border-collapse:collapse;font-size:13px}.history td,.history th{padding:8px 5px;border-bottom:1px solid var(--line);text-align:left}.history th{color:var(--muted);font-weight:600}.danger{color:#ff9a91}.ok{color:#6ee0ae}.hide{display:none!important}.calibration{font-size:12px;color:var(--muted)}.wheelMini{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.wheelMini span{padding:4px 7px;border-radius:6px;font-size:11px;font-weight:700}.foot{font-size:11px;color:var(--muted);line-height:1.5;margin-top:18px}
-.yReference{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#101923;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 14px}.yReference svg{width:150px;max-width:38%;height:auto;flex:0 0 auto}.yReference .refCopy{flex:1;min-width:180px}.yReference strong{color:#f3d58d}.yReference .refNote{font-size:12px;line-height:1.45;color:var(--muted);margin-top:4px}.yReference .armLabel{font-size:10px;font-weight:800;fill:#edf3f7}.yReference .dealerLabel{font-size:10px;font-weight:700;fill:#9aabb8}
-@media(max-width:620px){.grid{grid-template-columns:1fr}.numbers{grid-template-columns:repeat(7,minmax(0,1fr))}.panel{padding:12px}header{align-items:flex-start}.big{font-size:25px}}
+:root{color-scheme:dark;--bg:#0b1117;--panel:#141e28;--panel2:#1b2935;--line:#2b3b49;--text:#edf3f7;--muted:#9aabb8;--accent:#e4b85d;--green:#20b879;--red:#dc514d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:980px;margin:auto;padding:18px 14px 40px}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+h1{font-size:23px;margin:0}h2{font-size:17px;margin:0 0 12px}.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.tag{border:1px solid #806b3b;color:#f3d58d;border-radius:99px;padding:5px 9px;font-size:11px;white-space:nowrap}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0}
+.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.muted{color:var(--muted)}
+button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;font-weight:650}
+button.primary{background:var(--accent);color:#211a0c;border:0}button:disabled{opacity:.45;cursor:not-allowed}
+video{display:block;width:100%;max-height:520px;object-fit:contain;background:#05080b;border-radius:12px}
+.videoHint,.hint{font-size:12px;line-height:1.5;color:var(--muted)}.videoHint{margin-top:9px}
+.status{display:inline-flex;align-items:center;gap:7px;border-radius:99px;padding:7px 11px;background:var(--panel2);font-size:13px}
+.dot{width:10px;height:10px;border-radius:50%;background:#788896}.dot.green{background:var(--green);box-shadow:0 0 12px #20b87988}.dot.red{background:var(--red)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.metric{background:#101923;border:1px solid var(--line);border-radius:12px;padding:13px;min-width:0}
+.metric .name{font-size:13px;color:var(--muted)}.metric .value{font-size:25px;font-weight:800;margin-top:5px}.metric .detail{font-size:12px;color:var(--muted);margin-top:4px}
+.foot{font-size:11px;color:var(--muted);line-height:1.5;margin-top:18px}
+@media(max-width:620px){.grid{grid-template-columns:1fr}.panel{padding:12px}header{align-items:flex-start}.metric .value{font-size:22px}}
 </style>
 </head>
-<body><main>
-<header><div><h1>Y Roulette Analyzer</h1><div class="sub">Leitura do lançamento • validação do sensor • região oposta</div></div><span class="tag">ROULETA EUROPEIA · 37 CASAS</span></header>
+<body>
+<main>
+<header>
+ <div><h1>Roleta · Análise de Movimento</h1><div class="sub">Análise visual da velocidade da bola e da rotação da mesa</div></div>
+ <span class="tag">ANÁLISE POR VÍDEO</span>
+</header>
 
 <section class="panel">
-<h2>1. Câmera e sensor</h2>
-<div class="videoWrap"><video id="video" autoplay muted playsinline></video></div>
-<div class="row" style="margin-top:10px">
-<button class="primary" id="startCam">Ativar câmera</button><button id="stopCam" disabled>Desligar</button><button id="setRoi" disabled>Marcar sensor no vídeo</button>
-</div>
-<p class="videoHint">Ative a câmera e toque em “Marcar sensor no vídeo”; depois toque sobre a área do sensor verde. A câmera acompanha a cor nessa pequena área.</p>
-<div class="row" style="margin-top:10px;justify-content:space-between">
-<div class="status"><span id="sensorDot" class="dot"></span><span id="sensorText">Sensor não calibrado</span></div>
-<div class="calibration" id="roiText">Área do sensor: não definida</div>
-</div>
-<div class="hint" style="margin-top:8px">O sensor precisa estar nítido e enquadrado. A leitura usa maioria de pixels da área marcada e exige 5 quadros consecutivos da mesma cor; após 30 quadros sem leitura, a referência verde é descartada. O gatilho só ocorre com verde confirmado seguido de laranja confirmado.</div>
-</section>
-
-<section class="panel" id="screenCapturePanel">
-<h2>Captura da tela do celular</h2>
-<p class="hint">Compartilhe a tela onde o vídeo da roleta está sendo reproduzido. O Android/navegador solicitará autorização. Esta etapa recebe e exibe a captura; ainda não rastreia a bolinha nem calcula velocidades.</p>
-<div class="videoWrap"><video id="screenVideo" autoplay muted playsinline></video></div>
-<div class="row" style="margin-top:10px">
-<button class="primary" id="startScreenCapture">Compartilhar tela</button>
-<button id="stopScreenCapture" disabled>Encerrar captura</button>
-<span class="status"><span id="screenDot" class="dot"></span><span id="screenStatus">Captura não iniciada</span></span>
-</div>
-<p class="videoHint" id="screenCapability">Verificando suporte do navegador…</p>
+ <h2>Vídeo da roleta</h2>
+ <p class="hint">Compartilhe a tela que contém o vídeo da roleta. Mantenha a imagem inteira visível e, se possível, use um vídeo com boa resolução e poucos cortes.</p>
+ <div class="videoWrap"><video id="screenVideo" autoplay muted playsinline></video></div>
+ <div class="row" style="margin-top:12px">
+  <button class="primary" id="startCapture">Compartilhar tela</button>
+  <button id="stopCapture" disabled>Encerrar captura</button>
+  <span class="status"><span id="captureDot" class="dot"></span><span id="captureStatus">Aguardando vídeo</span></span>
+ </div>
+ <p class="videoHint" id="supportStatus">Verificando suporte à captura de tela…</p>
 </section>
 
 <section class="panel">
-<h2>2. Dados do lançamento</h2>
-<div class="yReference" role="img" aria-label="Referência do Y vista do crupiê: A à frente, B à esquerda e C à direita">
-<svg viewBox="0 0 240 235" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-<defs><marker id="yArrow" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6" fill="none" stroke="#9aabb8" stroke-width="1.2"/></marker></defs>
-<path d="M120 112 L120 28 M120 112 L43 178 M120 112 L197 178" fill="none" stroke="#e4b85d" stroke-width="8" stroke-linecap="round"/>
-<circle cx="120" cy="112" r="9" fill="#edf3f7" stroke="#e4b85d" stroke-width="3"/>
-<text x="120" y="17" text-anchor="middle" class="armLabel">A · FRENTE</text>
-<text x="12" y="194" text-anchor="start" class="armLabel">B · ESQUERDA</text>
-<text x="228" y="194" text-anchor="end" class="armLabel">C · DIREITA</text>
-<path d="M120 222 L120 137" fill="none" stroke="#9aabb8" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#yArrow)"/>
-<text x="120" y="233" text-anchor="middle" class="dealerLabel">CRUPIÊ</text>
-</svg>
-<div class="refCopy"><strong>Referência fixa do Y — vista do crupiê</strong><div class="refNote">O crupiê olha para A à sua frente. B fica à sua esquerda e C à sua direita. Use sempre esta orientação ao selecionar o setor e ao fazer as calibrações. Este desenho é apenas uma referência visual: a câmera ainda não reconhece o Y automaticamente.</div></div>
-</div>
-<div class="grid">
-<div class="field"><label for="launchNumber">Número que estava sob a bolinha no lançamento</label><select id="launchNumber"></select></div>
-<div class="field"><label for="launchSector">Posição do lançamento no Y</label><select id="launchSector"><option value="A">A — frente do crupiê</option><option value="B">B — esquerda do crupiê</option><option value="C">C — direita do crupiê</option></select></div>
-</div>
-<div class="hint" style="margin-top:9px">A/B/C e o número são registrados para cada giro. Nesta primeira versão, a leitura do número e do setor é assistida: selecione os dados observados no vídeo. A detecção automática do número em uma roleta girando exige calibração visual específica da mesa.</div>
-<div class="row" style="margin-top:12px">
-<button class="primary" id="arm">Armar validação do sensor</button><button id="resetSensor">Reiniciar sensor</button>
-<span id="armStatus" class="muted" style="font-size:12px">Aguardando calibração</span>
-</div>
+ <h2>Condição do vídeo</h2>
+ <div class="grid">
+  <div class="metric"><div class="name">Resolução recebida</div><div class="value" id="resolution">—</div><div class="detail">Dimensões reais do vídeo compartilhado</div></div>
+  <div class="metric"><div class="name">Quadros recebidos</div><div class="value" id="frameCount">0</div><div class="detail" id="frameRate">Taxa de quadros: —</div></div>
+ </div>
 </section>
 
 <section class="panel">
-<h2>3. Oposição e faixa de 13 casas</h2>
-<div class="result"><div><div class="muted" style="font-size:12px">Número principal oposto</div><div id="mainNumber" class="big">—</div><div id="targetInfo" class="sub">Nenhum sinal validado</div></div><div id="validBadge" class="tag">SEM SINAL</div></div>
-<div id="numbers" class="numbers"></div>
-<div style="margin-top:14px">
-<div class="sub" style="margin-bottom:8px">Calibração manual da região C</div>
-<div class="grid">
-<div class="field"><label for="calSector">Setor de referência</label><select id="calSector"><option value="A">A — frente do crupiê</option><option value="B">B — esquerda do crupiê</option><option value="C">C — direita do crupiê</option></select></div>
-<div class="field"><label for="calLaunch">Número sob a bolinha no lançamento</label><select id="calLaunch"></select></div>
-<div class="field"><label for="calCNumber">Número alinhado à região C no mesmo instante</label><select id="calCNumber"></select></div>
-</div>
-<div class="row" style="margin-top:10px"><button class="primary" id="saveCalibration">Salvar calibração do setor</button><button id="clearCalibration">Apagar calibrações</button></div>
-<p id="calibrationStatus" class="hint" style="margin-top:9px">Calibre A, B e C antes de armar o sensor.</p>
-<p class="hint">Observe um mesmo instante no vídeo e informe os dois números. O app calcula o deslocamento entre eles pela ordem física europeia cadastrada. A referência é manual e deve ser repetida para A, B e C; não é uma detecção automática.</p>
-</div>
+ <h2>Análise dos movimentos</h2>
+ <div class="grid">
+  <div class="metric">
+   <div class="name">Velocidade da bola</div>
+   <div class="value" id="ballSpeed">Aguardando análise</div>
+   <div class="detail" id="ballState">O rastreamento da posição da bola ainda não foi iniciado.</div>
+  </div>
+  <div class="metric">
+   <div class="name">Rotação da mesa</div>
+   <div class="value" id="wheelSpeed">Aguardando análise</div>
+   <div class="detail" id="wheelState">O rastreamento angular da roda ainda não foi iniciado.</div>
+  </div>
+ </div>
+ <p class="hint" style="margin-top:12px">Os valores de velocidade e rotação só serão exibidos depois que o rastreamento visual estiver implementado e validado nos quadros do vídeo. Esta versão confirma a captura e mede a taxa de quadros recebidos; não inventa velocidades nem prevê resultados.</p>
 </section>
 
-<section class="panel">
-<div class="row" style="justify-content:space-between"><h2 style="margin:0">4. Histórico</h2><div class="row"><button id="export">Exportar CSV</button><button id="clear">Limpar</button></div></div>
-<div style="overflow:auto;margin-top:8px"><table class="history"><thead><tr><th>Hora</th><th>Lançamento</th><th>Y</th><th>Sensor</th><th>Principal</th><th>Faixa</th></tr></thead><tbody id="history"><tr><td colspan="6" class="muted">Nenhum giro validado.</td></tr></tbody></table></div>
-</section>
-<p class="foot">Ferramenta experimental de registro e análise. A mudança de cor confirma apenas a leitura visual configurada; não garante que o número oposto ou a faixa contenham o resultado. Não há promessa de previsão ou vantagem na roleta. A câmera funciona somente após sua autorização e o vídeo não é enviado a um servidor por este aplicativo.</p>
+<p class="foot">O aplicativo agora trabalha exclusivamente com vídeo. Não há leitura de sensores, transição de cores, posições A/B/C, calibração do Y ou cálculo de números. A captura depende do suporte do navegador e da autorização concedida pelo usuário.</p>
 </main>
-<canvas id="sample" width="160" height="120" style="display:none"></canvas>
 <script>
-const ORDER=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
-const REDS=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+const $ = id => document.getElementById(id);
+const screenVideo = $('screenVideo');
+let captureStream = null;
+let frameCallbackId = null;
+let frameTotal = 0;
+let rateWindowStart = 0;
+let rateWindowFrames = 0;
 
-const screenVideo=$('screenVideo');
-let screenStream=null;
-function screenCaptureSupport(){
- const supported=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia);
- $('screenCapability').textContent=supported
-  ? 'Este navegador oferece captura de tela. A autorização será solicitada ao tocar em Compartilhar tela.'
-  : 'Captura de tela indisponível neste navegador. Para uso confiável no Android, será necessária integração nativa com MediaProjection.';
- $('startScreenCapture').disabled=!supported;
+function updateCaptureSupport(){
+ const supported = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+ $('supportStatus').textContent = supported
+  ? 'Captura de tela disponível neste navegador. Toque em “Compartilhar tela” e escolha a janela ou tela do vídeo.'
+  : 'Este navegador não oferece captura de tela. No Android, pode ser necessária uma versão nativa com MediaProjection.';
+ $('startCapture').disabled = !supported;
 }
-async function startScreenCapture(){
- if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){
-  $('screenStatus').textContent='Recurso não suportado neste navegador';$('screenDot').className='dot red';return;
+function stopFrameCounter(){
+ if(frameCallbackId !== null && typeof screenVideo.cancelVideoFrameCallback === 'function'){
+  screenVideo.cancelVideoFrameCallback(frameCallbackId);
  }
- try{
-  screenStream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15,max:30}},audio:false});
-  screenVideo.srcObject=screenStream;
-  $('startScreenCapture').disabled=true;$('stopScreenCapture').disabled=false;
-  $('screenStatus').textContent='Tela compartilhada · análise ainda não ativada';$('screenDot').className='dot green';
-  screenStream.getVideoTracks()[0].addEventListener('ended',stopScreenCapture,{once:true});
- }catch(err){
-  $('screenStatus').textContent=err&&err.name==='NotAllowedError'?'Compartilhamento cancelado ou negado':'Não foi possível iniciar a captura';
-  $('screenDot').className='dot red';
+ frameCallbackId = null;
+}
+function countVideoFrame(now){
+ if(!captureStream || screenVideo.paused) return;
+ frameTotal++;
+ rateWindowFrames++;
+ $('frameCount').textContent = String(frameTotal);
+ if(!rateWindowStart) rateWindowStart = now;
+ const elapsed = now - rateWindowStart;
+ if(elapsed >= 1000){
+  const fps = rateWindowFrames * 1000 / elapsed;
+  $('frameRate').textContent = 'Taxa recebida: ' + fps.toFixed(1) + ' quadros/s';
+  rateWindowStart = now;
+  rateWindowFrames = 0;
+ }
+ if(typeof screenVideo.requestVideoFrameCallback === 'function'){
+  frameCallbackId = screenVideo.requestVideoFrameCallback(countVideoFrame);
  }
 }
-function stopScreenCapture(){
- if(screenStream)screenStream.getTracks().forEach(t=>t.stop());
- screenStream=null;screenVideo.srcObject=null;
- $('startScreenCapture').disabled=!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia);
- $('stopScreenCapture').disabled=true;$('screenStatus').textContent='Captura encerrada';$('screenDot').className='dot';
-}
-$('startScreenCapture').addEventListener('click',startScreenCapture);
-$('stopScreenCapture').addEventListener('click',stopScreenCapture);
-screenCaptureSupport();
-
-const $=id=>document.getElementById(id);
-const video=$('video'),sample=$('sample'),ctx=sample.getContext('2d',{willReadFrequently:true});
-let stream=null,roi=null,selectingRoi=false,raf=0,lastColor='unknown',candidateColor='unknown',candidateFrames=0,unknownFrames=0,armed=false,greenSeen=false,lastTrigger=0,history=[],armedLaunch=null,armedSector=null;
-function loadCalibration(){
- try{
-  const saved=JSON.parse(localStorage.getItem('y-roulette-calibration-v1')||'{}'),clean={};
-  ['A','B','C'].forEach(s=>{if(Number.isInteger(saved[s])&&saved[s]>=0&&saved[s]<37)clean[s]=saved[s]});
-  return clean;
- }catch(e){return {}}
-}
-let calibrationOffsets=loadCalibration();
-function fillNumberSelect(id,placeholder=false){
- const select=$(id);
- if(placeholder){const o=document.createElement('option');o.value='';o.textContent='Selecione';o.disabled=true;o.selected=true;select.append(o)}
- for(let n=0;n<=36;n++){const o=document.createElement('option');o.value=n;o.textContent=n;select.append(o)}
-}
-fillNumberSelect('launchNumber');fillNumberSelect('calLaunch',true);fillNumberSelect('calCNumber',true);
-function colorClass(n){return n===0?'zero':REDS.has(n)?'red':'black'}
-function renderCalibrationStatus(){
- const parts=['A','B','C'].map(s=>calibrationOffsets[s]===undefined?s+': pendente':s+': '+calibrationOffsets[s]+' casas').join(' · ');
- $('calibrationStatus').textContent='Calibração de C por setor — '+parts+'.';
-}
-function saveCalibration(){
- const sector=$('calSector').value,fromValue=$('calLaunch').value,toValue=$('calCNumber').value;
- if(fromValue===''||toValue===''){$('calibrationStatus').textContent='Selecione os dois números observados no mesmo instante.';return}
- const from=ORDER.indexOf(Number(fromValue)),to=ORDER.indexOf(Number(toValue));
- if(from<0||to<0){$('calibrationStatus').textContent='Não foi possível localizar os números na ordem europeia.';return}
- const offset=(to-from+ORDER.length)%ORDER.length;
- calibrationOffsets[sector]=offset;
- let persisted=true;
- try{localStorage.setItem('y-roulette-calibration-v1',JSON.stringify(calibrationOffsets))}catch(e){persisted=false}
- renderCalibrationStatus();
- $('calibrationStatus').textContent+=' Setor '+sector+' calibrado com '+offset+' casas'+(persisted?' e salvo neste navegador.':' para esta sessão; o navegador não permitiu salvar.');
- $('armStatus').textContent='Calibração C do setor '+sector+' atualizada.';
-}
-function clearCalibration(){
- if(!confirm('Apagar as calibrações A, B e C?'))return;
- calibrationOffsets={};armed=false;armedLaunch=null;armedSector=null;
- try{localStorage.removeItem('y-roulette-calibration-v1')}catch(e){}
- renderCalibrationStatus();$('armStatus').textContent='Calibrações apagadas; nenhum setor pode gerar faixa até ser calibrado.';
- $('validBadge').textContent='SEM SINAL';$('validBadge').style.borderColor='';
- $('mainNumber').textContent='—';$('targetInfo').textContent='Calibre a região C para o setor do lançamento';$('numbers').innerHTML='';
-}
-function renderBand(main){
- const idx=ORDER.indexOf(main),list=[];
- for(let d=-6;d<=6;d++)list.push(ORDER[(idx+d+37)%37]);
- $('numbers').innerHTML='';
- list.forEach((n,i)=>{const el=document.createElement('div');el.className='pocket '+colorClass(n)+(i===6?' main':'');el.innerHTML=n+(i===6?'<small>PRINCIPAL</small>':'');$('numbers').append(el)});
-}
-function setSensor(color,label){
- $('sensorDot').className='dot '+(color==='green'?'green':color==='orange'?'orange':color==='unknown'?'':'red');
- $('sensorText').textContent=label;
-}
-function classify(r,g,b){
- const max=Math.max(r,g,b),min=Math.min(r,g,b),delta=max-min;
- if(max<55||delta<28)return 'unknown';
- const saturation=delta/max,value=max/255;
- if(saturation<.34||value<.22)return 'unknown';
- let hue;
- if(max===r)hue=60*(((g-b)/delta)%6);
- else if(max===g)hue=60*((b-r)/delta+2);
- else hue=60*((r-g)/delta+4);
- if(hue<0)hue+=360;
- if(hue>=75&&hue<=165)return 'green';
- if(hue>=8&&hue<=50)return 'orange';
- return 'unknown';
-}
-function classifyPatch(data){
- let green=0,orange=0;
- for(let i=0;i<data.length;i+=4){
-  const color=classify(data[i],data[i+1],data[i+2]);
-  if(color==='green')green++;
-  else if(color==='orange')orange++;
+function startFrameCounter(){
+ stopFrameCounter();
+ frameTotal = 0;
+ rateWindowStart = 0;
+ rateWindowFrames = 0;
+ $('frameCount').textContent = '0';
+ $('frameRate').textContent = 'Calculando taxa de quadros…';
+ if(typeof screenVideo.requestVideoFrameCallback === 'function'){
+  frameCallbackId = screenVideo.requestVideoFrameCallback(countVideoFrame);
+ }else{
+  $('frameRate').textContent = 'Contagem detalhada de quadros não suportada neste navegador.';
  }
- const valid=green+orange,total=data.length/4;
- if(valid<Math.ceil(total*.35))return 'unknown';
- if(green/valid>=.7)return 'green';
- if(orange/valid>=.7)return 'orange';
- return 'unknown';
 }
-function processSensorColor(detected){
- if(detected==='unknown'){
-  candidateColor='unknown';candidateFrames=0;unknownFrames++;
-  if(unknownFrames>=30&&lastColor!=='unknown'){
-   lastColor='unknown';greenSeen=false;
-   setSensor('unknown','Sem leitura estável — aguardando novo verde');
-  }
+async function startCapture(){
+ if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+  $('captureStatus').textContent = 'Captura não suportada';
+  $('captureDot').className = 'dot red';
   return;
  }
- unknownFrames=0;
- if(candidateColor===detected)candidateFrames++;
- else{candidateColor=detected;candidateFrames=1}
- if(candidateFrames<5||lastColor===detected)return;
- const previous=lastColor;
- lastColor=detected;
- if(detected==='green'){
-  greenSeen=true;
-  setSensor('green','Sensor verde confirmado — aguardando mudança');
- }else{
-  const validTransition=previous==='green'&&greenSeen&&armed&&Date.now()-lastTrigger>1800;
-  if(validTransition){
-   lastTrigger=Date.now();
-   triggerSignal();
-   setSensor('orange','Transição verde → laranja confirmada');
-  }else{
-   setSensor('orange',armed?'Laranja estável, mas sem transição válida':'Sensor laranja — não armado');
-  }
+ try{
+  captureStream = await navigator.mediaDevices.getDisplayMedia({
+   video:{frameRate:{ideal:30,max:60}},
+   audio:false
+  });
+  screenVideo.srcObject = captureStream;
+  await screenVideo.play();
+  $('startCapture').disabled = true;
+  $('stopCapture').disabled = false;
+  $('captureStatus').textContent = 'Vídeo recebido';
+  $('captureDot').className = 'dot green';
+  const track = captureStream.getVideoTracks()[0];
+  const settings = track && track.getSettings ? track.getSettings() : {};
+  const width = settings.width || screenVideo.videoWidth;
+  const height = settings.height || screenVideo.videoHeight;
+  $('resolution').textContent = width && height ? width + ' × ' + height : 'Aguardando…';
+  startFrameCounter();
+  if(track) track.addEventListener('ended', stopCapture, {once:true});
+ }catch(error){
+  captureStream = null;
+  $('captureStatus').textContent = error && error.name === 'NotAllowedError' ? 'Compartilhamento cancelado' : 'Falha ao capturar vídeo';
+  $('captureDot').className = 'dot red';
  }
 }
-function sampleSensor(){
- if(!stream)return;
- if(video.readyState<2||!roi){raf=requestAnimationFrame(sampleSensor);return}
- try{
-  const sampleWidth=160;
-  const sampleHeight=Math.max(1,Math.round(sampleWidth*video.videoHeight/video.videoWidth));
-  if(sample.width!==sampleWidth)sample.width=sampleWidth;
-  if(sample.height!==sampleHeight)sample.height=sampleHeight;
-  ctx.drawImage(video,0,0,sample.width,sample.height);
-  const x=Math.max(0,Math.min(sample.width-1,Math.round(roi.x*sample.width)));
-  const y=Math.max(0,Math.min(sample.height-1,Math.round(roi.y*sample.height)));
-  const sx=Math.max(0,Math.min(sample.width-7,x-3));
-  const sy=Math.max(0,Math.min(sample.height-7,y-3));
-  processSensorColor(classifyPatch(ctx.getImageData(sx,sy,7,7).data));
- }catch(e){processSensorColor('unknown')}
- raf=requestAnimationFrame(sampleSensor);
+function stopCapture(){
+ stopFrameCounter();
+ if(captureStream) captureStream.getTracks().forEach(track => track.stop());
+ captureStream = null;
+ screenVideo.srcObject = null;
+ $('startCapture').disabled = !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+ $('stopCapture').disabled = true;
+ $('captureStatus').textContent = 'Captura encerrada';
+ $('captureDot').className = 'dot';
+ $('resolution').textContent = '—';
+ $('frameCount').textContent = '0';
+ $('frameRate').textContent = 'Taxa de quadros: —';
 }
-async function startCamera(){
- try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});video.srcObject=stream;$('startCam').disabled=true;$('stopCam').disabled=false;$('setRoi').disabled=false;sampleSensor();}
- catch(e){alert('Não foi possível abrir a câmera. Autorize o acesso e use o site em HTTPS.')}
-}
-function stopCamera(){cancelAnimationFrame(raf);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;armed=false;armedLaunch=null;armedSector=null;greenSeen=false;lastColor='unknown';candidateColor='unknown';candidateFrames=0;unknownFrames=0;$('startCam').disabled=false;$('stopCam').disabled=true;$('setRoi').disabled=true;$('armStatus').textContent='Câmera desligada; validação desarmada';setSensor('unknown','Câmera desligada')}
-$('startCam').onclick=startCamera;$('stopCam').onclick=stopCamera;
-$('setRoi').onclick=()=>{selectingRoi=true;$('roiText').textContent='Toque sobre o sensor verde no vídeo';$('video').style.cursor='crosshair'};
-video.addEventListener('click',e=>{if(!selectingRoi)return;const r=video.getBoundingClientRect();const vw=video.videoWidth,vh=video.videoHeight;if(!vw||!vh)return;const scale=Math.min(r.width/vw,r.height/vh);const w=vw*scale,h=vh*scale;const left=r.left+(r.width-w)/2,top=r.top+(r.height-h)/2;const px=e.clientX-left,py=e.clientY-top;if(px<0||py<0||px>w||py>h){$('roiText').textContent='Toque dentro da imagem da roleta, não na faixa preta';return}roi={x:px/w,y:py/h};selectingRoi=false;video.style.cursor='default';$('roiText').textContent='Sensor calibrado · '+Math.round(roi.x*100)+'%, '+Math.round(roi.y*100)+'%';lastColor='unknown';candidateColor='unknown';candidateFrames=0;unknownFrames=0;greenSeen=false;setSensor('unknown','Aguardando sensor verde confirmado')});
-function arm(){
- if(!stream||!roi){$('armStatus').textContent='Ative a câmera e marque a área do sensor';return}
- const sector=$('launchSector').value;
- if(!Number.isInteger(calibrationOffsets[sector])){$('armStatus').textContent='Calibre primeiro a região C para o setor '+sector+'. Nenhuma faixa será gerada sem essa referência.';$('validBadge').textContent='CALIBRAÇÃO PENDENTE';$('validBadge').style.borderColor='#f39a38';return}
- if(lastColor!=='green'){$('armStatus').textContent='Aguarde o sensor ser identificado como verde';return}
- armed=true;greenSeen=true;armedLaunch=Number($('launchNumber').value);armedSector=sector;
- $('armStatus').textContent='Armado com lançamento '+armedLaunch+' / setor '+armedSector+': aguardando verde → laranja';
- $('validBadge').textContent='AGUARDANDO';$('validBadge').style.borderColor='#20b879';
-}
-$('arm').onclick=arm;
-$('resetSensor').onclick=()=>{armed=false;armedLaunch=null;armedSector=null;candidateColor='unknown';candidateFrames=0;unknownFrames=0;greenSeen=lastColor==='green';$('armStatus').textContent='Validação reiniciada';$('validBadge').textContent='SEM SINAL';$('validBadge').style.borderColor='';$('mainNumber').textContent='—';$('targetInfo').textContent='Aguardando novo lançamento validado';$('numbers').innerHTML=''};
-$('saveCalibration').onclick=saveCalibration;$('clearCalibration').onclick=clearCalibration;
-function triggerSignal(){
- armed=false;
- const launch=armedLaunch===null?Number($('launchNumber').value):armedLaunch;
- const sector=armedSector===null?$('launchSector').value:armedSector;
- const offset=calibrationOffsets[sector];
- armedLaunch=null;armedSector=null;
- if(!Number.isInteger(offset)){$('armStatus').textContent='Mudança do sensor sem calibração válida para '+sector+'; nenhuma faixa gerada.';return}
- const i=ORDER.indexOf(launch),main=ORDER[(i+offset)%37];
- renderBand(main);
- $('mainNumber').textContent=String(main);
- $('targetInfo').textContent='Destino de análise: região C · lançamento '+launch+' na posição '+sector+' · deslocamento calibrado: '+offset+' casas';
- $('validBadge').textContent='SINAL VALIDADO';$('validBadge').style.borderColor='#20b879';
- $('armStatus').textContent='Sinal gerado após mudança verde → laranja';
- const band=Array.from({length:13},(_,d)=>ORDER[(ORDER.indexOf(main)+d-6+37)%37]);
- history.unshift({time:new Date().toLocaleTimeString('pt-BR'),launch,sector,main,offset,band:band.join(' '),sensor:'Verde → laranja'});
- renderHistory();
-}
-function renderHistory(){
- const body=$('history');body.innerHTML='';
- if(!history.length){body.innerHTML='<tr><td colspan="6" class="muted">Nenhum giro validado.</td></tr>';return}
- history.forEach(h=>{const tr=document.createElement('tr');[h.time,h.launch,h.sector,h.sensor,h.main,'13 casas'].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});body.append(tr)});
-}
-
-$('clear').onclick=()=>{if(confirm('Apagar todo o histórico desta sessão?')){history=[];renderHistory()}};
-$('export').onclick=()=>{if(!history.length){alert('Ainda não há registros.');return}const rows=[['hora','numero_lancado','posicao_Y','sensor','numero_principal','deslocamento_calibrado','faixa_13'],...history.map(h=>[h.time,h.launch,h.sector,h.sensor,h.main,h.offset,h.band])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='y-roulette-historico.csv';a.click();URL.revokeObjectURL(a.href)};
-$('numbers').innerHTML='';
-renderCalibrationStatus();
-</script></body></html>
+$('startCapture').addEventListener('click', startCapture);
+$('stopCapture').addEventListener('click', stopCapture);
+screenVideo.addEventListener('loadedmetadata', () => {
+ if(screenVideo.videoWidth && screenVideo.videoHeight){
+  $('resolution').textContent = screenVideo.videoWidth + ' × ' + screenVideo.videoHeight;
+ }
+});
+updateCaptureSupport();
+</script>
+</body>
+</html>
