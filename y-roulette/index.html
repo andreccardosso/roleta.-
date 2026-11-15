@@ -27,6 +27,18 @@
 <div class="hint" style="margin-top:8px">O sensor precisa estar nítido e enquadrado. A leitura usa maioria de pixels da área marcada e exige 5 quadros consecutivos da mesma cor; após 30 quadros sem leitura, a referência verde é descartada. O gatilho só ocorre com verde confirmado seguido de laranja confirmado.</div>
 </section>
 
+<section class="panel" id="screenCapturePanel">
+<h2>Captura da tela do celular</h2>
+<p class="hint">Compartilhe a tela onde o vídeo da roleta está sendo reproduzido. O Android/navegador solicitará autorização. Esta etapa recebe e exibe a captura; ainda não rastreia a bolinha nem calcula velocidades.</p>
+<div class="videoWrap"><video id="screenVideo" autoplay muted playsinline></video></div>
+<div class="row" style="margin-top:10px">
+<button class="primary" id="startScreenCapture">Compartilhar tela</button>
+<button id="stopScreenCapture" disabled>Encerrar captura</button>
+<span class="status"><span id="screenDot" class="dot"></span><span id="screenStatus">Captura não iniciada</span></span>
+</div>
+<p class="videoHint" id="screenCapability">Verificando suporte do navegador…</p>
+</section>
+
 <section class="panel">
 <h2>2. Dados do lançamento</h2>
 <div class="yReference" role="img" aria-label="Referência do Y vista do crupiê: A à frente, B à esquerda e C à direita">
@@ -80,6 +92,41 @@
 <script>
 const ORDER=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
 const REDS=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+
+const screenVideo=$('screenVideo');
+let screenStream=null;
+function screenCaptureSupport(){
+ const supported=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia);
+ $('screenCapability').textContent=supported
+  ? 'Este navegador oferece captura de tela. A autorização será solicitada ao tocar em Compartilhar tela.'
+  : 'Captura de tela indisponível neste navegador. Para uso confiável no Android, será necessária integração nativa com MediaProjection.';
+ $('startScreenCapture').disabled=!supported;
+}
+async function startScreenCapture(){
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){
+  $('screenStatus').textContent='Recurso não suportado neste navegador';$('screenDot').className='dot red';return;
+ }
+ try{
+  screenStream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15,max:30}},audio:false});
+  screenVideo.srcObject=screenStream;
+  $('startScreenCapture').disabled=true;$('stopScreenCapture').disabled=false;
+  $('screenStatus').textContent='Tela compartilhada · análise ainda não ativada';$('screenDot').className='dot green';
+  screenStream.getVideoTracks()[0].addEventListener('ended',stopScreenCapture,{once:true});
+ }catch(err){
+  $('screenStatus').textContent=err&&err.name==='NotAllowedError'?'Compartilhamento cancelado ou negado':'Não foi possível iniciar a captura';
+  $('screenDot').className='dot red';
+ }
+}
+function stopScreenCapture(){
+ if(screenStream)screenStream.getTracks().forEach(t=>t.stop());
+ screenStream=null;screenVideo.srcObject=null;
+ $('startScreenCapture').disabled=!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia);
+ $('stopScreenCapture').disabled=true;$('screenStatus').textContent='Captura encerrada';$('screenDot').className='dot';
+}
+$('startScreenCapture').addEventListener('click',startScreenCapture);
+$('stopScreenCapture').addEventListener('click',stopScreenCapture);
+screenCaptureSupport();
+
 const $=id=>document.getElementById(id);
 const video=$('video'),sample=$('sample'),ctx=sample.getContext('2d',{willReadFrequently:true});
 let stream=null,roi=null,selectingRoi=false,raf=0,lastColor='unknown',candidateColor='unknown',candidateFrames=0,unknownFrames=0,armed=false,greenSeen=false,lastTrigger=0,history=[],armedLaunch=null,armedSector=null;
