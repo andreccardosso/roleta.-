@@ -168,7 +168,7 @@ class MainActivity : Activity() {
                       if(!overlay){
                         overlay=document.createElement('div');
                         overlay.id='__yWheelCircle';
-                        overlay.style.cssText='position:fixed;display:none;border:3px solid #ffd34e;border-radius:50%;background:rgba(255,211,78,.10);box-shadow:0 0 12px #ffd34e;transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;';
+                        overlay.style.cssText='position:fixed;display:none;border:1px solid #ffffff;border-radius:50%;background:transparent;box-shadow:none;transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;';
                         document.documentElement.appendChild(overlay);
                       }
                       var active=true, drawing=true, pointers={}, center=null, radius=0;
