@@ -415,7 +415,7 @@ function detectMovingBall(data,w,h,oldData,previousAngle,predictedDelta){
  if(!wheelArea||!oldData||oldData.length!==data.length)return null;
  const bins=120,hist=new Float32Array(bins),sumX=new Float32Array(bins),sumY=new Float32Array(bins),sumRho=new Float32Array(bins);
  for(let y=2;y<h-2;y+=2)for(let x=2;x<w-2;x+=2){
-  const q=ellipseCoordinates(x,y);if(!q||q.radius<=1.05||q.radius>1.42)continue;
+  const q=ellipseCoordinates(x,y);if(!q||q.radius<=1.12||q.radius>1.42)continue;
   const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2];
   const hi=Math.max(r,g,b),lo=Math.min(r,g,b),Y=.299*r+.587*g+.114*b;
   const oldY=.299*oldData[i]+.587*oldData[i+1]+.114*oldData[i+2];
