@@ -1,222 +1,269 @@
 package com.andreccardosso.roletaanalyzer
 
 import android.app.Activity
-import android.content.ComponentName
-import android.content.ServiceConnection
-import android.os.IBinder
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.os.Build
-import android.content.Context
-import android.content.Intent
-import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.os.Handler
-import android.os.HandlerThread
+import android.os.Looper
 import android.util.Base64
+import android.view.Gravity
+import android.view.PixelCopy
+import android.view.View
 import android.view.WindowManager
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
-import android.graphics.Bitmap
-import android.graphics.PixelFormat
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
-import android.media.ImageReader
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import java.io.ByteArrayOutputStream
-import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : Activity() {
-    private lateinit var webView: WebView
-    private var projection: MediaProjection? = null
-    private var virtualDisplay: VirtualDisplay? = null
-    private var imageReader: ImageReader? = null
+    private lateinit var browserView: WebView
+    private lateinit var analyzerView: WebView
+    private lateinit var addressBar: EditText
+    private lateinit var captureStatus: TextView
+    private val handler = Handler(Looper.getMainLooper())
+    private var capturing = false
+    private var captureBusy = false
     private var lastFrameAt = 0L
-    private var imageThread: HandlerThread? = null
-    private var imageHandler: Handler? = null
-    private val frameBusy = AtomicBoolean(false)
-    private var pendingResultCode: Int = 0
-    private var pendingProjectionData: Intent? = null
-    private var captureService: CaptureForegroundService? = null
-    private var captureServiceBound = false
-
-    private val captureServiceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            captureService = (binder as CaptureForegroundService.LocalBinder).getService()
-            val data = pendingProjectionData
-            if (data != null) {
-                startProjection(pendingResultCode, data)
-                pendingProjectionData = null
-            }
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            captureService = null
-            captureServiceBound = false
-        }
-    }
+    private val captureIntervalMs = 200L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        webView = WebView(this)
-        webView.settings.javaScriptEnabled = true
-        webView.settings.domStorageEnabled = true
-        webView.settings.mediaPlaybackRequiresUserGesture = false
-        webView.webChromeClient = WebChromeClient()
-        webView.webViewClient = WebViewClient()
-        webView.addJavascriptInterface(NativeCaptureBridge(), "AndroidCapture")
-        setContentView(webView)
-        webView.loadUrl("https://andreccardosso.github.io/roleta.-/y-roulette/")
+        buildInterface()
     }
 
-    inner class NativeCaptureBridge {
+    private fun buildInterface() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF0B1117.toInt())
+        }
+
+        val navigation = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(8, 6, 8, 6)
+            setBackgroundColor(0xFF17232E.toInt())
+        }
+        addressBar = EditText(this).apply {
+            setSingleLine(true)
+            textSize = 13f
+            setTextColor(0xFFFFFFFF.toInt())
+            setHintTextColor(0xFF9AABB8.toInt())
+            hint = "Endereço do site"
+            setPadding(12, 4, 12, 4)
+            setText("https://55vv07.com/main/promo?pid=2686211963&fromPage=AGENCY_ONE&_ts===gMyUCO5kTOxgjMyEDO4cTMyITJ")
+        }
+        val goButton = Button(this).apply {
+            text = "IR"
+            setOnClickListener { navigateToAddress() }
+        }
+        navigation.addView(addressBar, LinearLayout.LayoutParams(0, 48, 1f))
+        navigation.addView(goButton, LinearLayout.LayoutParams(64, 48))
+
+        browserView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.loadsImagesAutomatically = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.javaScriptCanOpenWindowsAutomatically = true
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            webChromeClient = WebChromeClient()
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    if (!url.isNullOrBlank()) addressBar.setText(url)
+                }
+            }
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+        }
+
+        val browserLabel = TextView(this).apply {
+            text = "NAVEGADOR · ENTRE NO SITE E ABRA A ROLETA"
+            textSize = 10f
+            setTextColor(0xFFE4B85D.toInt())
+            setPadding(10, 5, 10, 5)
+            setBackgroundColor(0xFF101923.toInt())
+        }
+
+        captureStatus = TextView(this).apply {
+            text = "ANÁLISE: aguardando captura do navegador"
+            textSize = 10f
+            setTextColor(0xFF9AABB8.toInt())
+            setPadding(10, 5, 10, 5)
+            setBackgroundColor(0xFF101923.toInt())
+        }
+
+        analyzerView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            webChromeClient = WebChromeClient()
+            webViewClient = WebViewClient()
+            addJavascriptInterface(BrowserCaptureBridge(), "AndroidCapture")
+        }
+
+        root.addView(navigation, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(browserLabel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(browserView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 0.58f
+        ))
+        root.addView(captureStatus, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(analyzerView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 0.42f
+        ))
+
+        setContentView(root)
+        browserView.loadUrl(addressBar.text.toString())
+        analyzerView.loadUrl("https://andreccardosso.github.io/roleta.-/y-roulette/")
+    }
+
+    private fun navigateToAddress() {
+        var url = addressBar.text.toString().trim()
+        if (url.isBlank()) return
+        if (!url.startsWith("https://") && !url.startsWith("http://")) url = "https://$url"
+        browserView.loadUrl(url)
+    }
+
+    inner class BrowserCaptureBridge {
         @JavascriptInterface
         fun start() {
             runOnUiThread {
-                val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                startActivityForResult(manager.createScreenCaptureIntent(), 2026)
+                if (browserView.url.isNullOrBlank()) {
+                    analyzerError("Abra primeiro o site da roleta no navegador acima.")
+                    return@runOnUiThread
+                }
+                capturing = true
+                captureStatus.text = "ANÁLISE: capturando somente a área do navegador"
+                analyzerView.evaluateJavascript(
+                    "window.onNativeCaptureStarted && window.onNativeCaptureStarted(720,1280)", null
+                )
+                scheduleCapture(0)
             }
         }
 
         @JavascriptInterface
         fun stop() {
-            runOnUiThread { stopProjection() }
-        }
-    }
-
-    @Deprecated("Deprecated in Android API; retained for broad device compatibility")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 2026) {
-            if (resultCode == Activity.RESULT_OK && data != null) {
-                pendingResultCode = resultCode
-                pendingProjectionData = data
-                startCaptureForegroundService()
-            } else {
-                webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Permissão de captura não concedida')", null)
+            runOnUiThread {
+                capturing = false
+                captureStatus.text = "ANÁLISE: captura pausada"
+                analyzerView.evaluateJavascript(
+                    "window.onNativeCaptureStopped && window.onNativeCaptureStopped()", null
+                )
             }
         }
     }
 
-    private fun startCaptureForegroundService() {
-        try {
-            val intent = Intent(this, CaptureForegroundService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-            captureServiceBound = bindService(intent, captureServiceConnection, Context.BIND_AUTO_CREATE)
-            if (!captureServiceBound) {
-                throw IllegalStateException("Não foi possível conectar ao serviço de captura")
-            }
-        } catch (error: Exception) {
-            val detail = (error.message ?: error.javaClass.simpleName).replace("'", "")
-            pendingProjectionData = null
-            webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Falha ao iniciar serviço de captura: $detail')", null)
-            stopService(Intent(this, CaptureForegroundService::class.java))
-        }
+    private fun scheduleCapture(delay: Long) {
+        handler.postDelayed({
+            if (capturing) captureBrowserFrame()
+        }, delay)
     }
 
-    private fun startProjection(resultCode: Int, data: Intent) {
-        try {
-            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            projection = manager.getMediaProjection(resultCode, data)
-            val metrics = resources.displayMetrics
-            val width = metrics.widthPixels
-            val height = metrics.heightPixels
-            val density = metrics.densityDpi
+    private fun captureBrowserFrame() {
+        if (!capturing || captureBusy || browserView.width <= 0 || browserView.height <= 0) {
+            if (capturing) scheduleCapture(captureIntervalMs)
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastFrameAt < captureIntervalMs) {
+            scheduleCapture(captureIntervalMs - (now - lastFrameAt))
+            return
+        }
+        lastFrameAt = now
+        captureBusy = true
 
-            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-            imageThread = HandlerThread("RoletaFrameReader").also { it.start() }
-            imageHandler = Handler(imageThread!!.looper)
-            imageReader?.setOnImageAvailableListener({ reader ->
-                val now = System.currentTimeMillis()
-                if (now - lastFrameAt < 180 || !frameBusy.compareAndSet(false, true)) {
-                    reader.acquireLatestImage()?.close()
-                    return@setOnImageAvailableListener
-                }
-                lastFrameAt = now
-                val image = reader.acquireLatestImage()
-                if (image == null) {
-                    frameBusy.set(false)
-                    return@setOnImageAvailableListener
-                }
-                try {
-                    val plane = image.planes[0]
-                    val pixelStride = plane.pixelStride
-                    val rowStride = plane.rowStride
-                    val rowPadding = rowStride - pixelStride * width
-                    val paddedWidth = width + rowPadding / pixelStride
-                    val bitmap = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888)
-                    bitmap.copyPixelsFromBuffer(plane.buffer)
-                    val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                    val output = ByteArrayOutputStream()
-                    cropped.compress(Bitmap.CompressFormat.JPEG, 55, output)
-                    val encoded = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-                    val js = "window.onNativeFrame && window.onNativeFrame('data:image/jpeg;base64,$encoded',$width,$height)"
-                    runOnUiThread { webView.evaluateJavascript(js, null) }
-                    bitmap.recycle()
-                    if (cropped !== bitmap) cropped.recycle()
-                } catch (_: Exception) {
-                    runOnUiThread {
-                        webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Falha ao ler quadro da tela')", null)
-                    }
-                } finally {
-                    image.close()
-                    frameBusy.set(false)
-                }
-            }, imageHandler)
+        val targetWidth = minOf(browserView.width, 720)
+        val targetHeight = (browserView.height.toFloat() * targetWidth / browserView.width).toInt().coerceAtLeast(1)
+        val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
 
-            // Android 14 exige que o callback seja registrado antes de criar o VirtualDisplay.
-            projection?.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() {
-                    runOnUiThread { stopProjection() }
-                }
-            }, Handler(mainLooper))
-
-            virtualDisplay = projection?.createVirtualDisplay(
-                "RoletaScreenCapture", width, height, density,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface, null, null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val location = IntArray(2)
+            browserView.getLocationInWindow(location)
+            val sourceRect = Rect(
+                location[0], location[1],
+                location[0] + browserView.width, location[1] + browserView.height
             )
-            if (virtualDisplay == null) {
-                throw IllegalStateException("O Android não criou a tela virtual")
+            PixelCopy.request(window, sourceRect, bitmap, { result ->
+                if (result == PixelCopy.SUCCESS) deliverFrame(bitmap)
+                else {
+                    bitmap.recycle()
+                    captureBusy = false
+                    if (capturing) scheduleCapture(captureIntervalMs)
+                }
+            }, handler)
+        } else {
+            try {
+                val canvas = Canvas(bitmap)
+                canvas.scale(
+                    targetWidth.toFloat() / browserView.width,
+                    targetHeight.toFloat() / browserView.height
+                )
+                browserView.draw(canvas)
+                deliverFrame(bitmap)
+            } catch (_: Exception) {
+                bitmap.recycle()
+                captureBusy = false
+                if (capturing) scheduleCapture(captureIntervalMs)
             }
-            webView.evaluateJavascript("window.onNativeCaptureStarted && window.onNativeCaptureStarted($width,$height)", null)
-        } catch (error: Exception) {
-            val detail = (error.message ?: error.javaClass.simpleName).replace("'", "")
-            stopProjection()
-            webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Falha ao iniciar captura: $detail')", null)
         }
     }
 
-    private fun stopProjection() {
-        virtualDisplay?.release()
-        virtualDisplay = null
-        imageReader?.close()
-        imageReader = null
-        imageThread?.quitSafely()
-        imageThread = null
-        imageHandler = null
-        projection?.stop()
-        projection = null
-        if (captureServiceBound) {
-            try { unbindService(captureServiceConnection) } catch (_: Exception) {}
-            captureServiceBound = false
+    private fun deliverFrame(bitmap: Bitmap) {
+        try {
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 55, output)
+            val encoded = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+            val width = bitmap.width
+            val height = bitmap.height
+            val js = "window.onNativeFrame && window.onNativeFrame('data:image/jpeg;base64,$encoded',$width,$height)"
+            analyzerView.evaluateJavascript(js, null)
+        } catch (_: Exception) {
+            analyzerError("Falha ao preparar imagem do navegador.")
+        } finally {
+            bitmap.recycle()
+            captureBusy = false
+            if (capturing) scheduleCapture(captureIntervalMs)
         }
-        captureService = null
-        stopService(Intent(this, CaptureForegroundService::class.java))
-        webView.evaluateJavascript("window.onNativeCaptureStopped && window.onNativeCaptureStopped()", null)
+    }
+
+    private fun analyzerError(message: String) {
+        val safe = message.replace("\\", "\\\\").replace("'", "\\'")
+        analyzerView.evaluateJavascript(
+            "window.onNativeCaptureError && window.onNativeCaptureError('$safe')", null
+        )
+    }
+
+    @Deprecated("Deprecated in Android API")
+    override fun onBackPressed() {
+        if (::browserView.isInitialized && browserView.canGoBack()) browserView.goBack()
+        else super.onBackPressed()
     }
 
     override fun onDestroy() {
-        stopProjection()
-        webView.removeJavascriptInterface("AndroidCapture")
-        webView.destroy()
+        capturing = false
+        handler.removeCallbacksAndMessages(null)
+        if (::browserView.isInitialized) browserView.destroy()
+        if (::analyzerView.isInitialized) {
+            analyzerView.removeJavascriptInterface("AndroidCapture")
+            analyzerView.destroy()
+        }
         super.onDestroy()
     }
 }
