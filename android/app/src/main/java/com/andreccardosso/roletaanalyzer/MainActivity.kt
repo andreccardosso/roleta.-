@@ -18,30 +18,16 @@ import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
     private lateinit var webView: WebView
     private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var lastFrameAt = 0L
     private val frameBusy = AtomicBoolean(false)
-
-    private val capturePermission = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            startProjection(result.resultCode, result.data!!)
-        } else {
-            runOnUiThread {
-                webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Permissão de captura não concedida')", null)
-            }
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,7 +49,7 @@ class MainActivity : AppCompatActivity() {
         fun start() {
             runOnUiThread {
                 val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                capturePermission.launch(manager.createScreenCaptureIntent())
+                startActivityForResult(manager.createScreenCaptureIntent(), 2026)
             }
         }
 
