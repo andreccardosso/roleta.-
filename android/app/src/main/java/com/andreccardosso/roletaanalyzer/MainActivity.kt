@@ -59,7 +59,13 @@ class MainActivity : Activity() {
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             runOnUiThread {
-                if (mediaProjection != null) stopScreenCapture()
+                capturing = false
+                mediaProjection = null
+                try { virtualDisplay?.release() } catch (_: Exception) {}
+                virtualDisplay = null
+                try { imageReader?.close() } catch (_: Exception) {}
+                imageReader = null
+                captureBusy = false
                 captureStatus.text = "ANÁLISE: compartilhamento encerrado"
             }
         }
