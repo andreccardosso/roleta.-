@@ -401,22 +401,32 @@ class MainActivity : Activity() {
             captureStatus.text = "ANÁLISE: compartilhamento não autorizado"
             return
         }
+        // Android 14 exige o serviço mediaProjection em primeiro plano antes de obter
+        // o MediaProjection. O serviço é iniciado e promovido antes da captura.
         try {
-            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjection = manager.getMediaProjection(resultCode, data)
-            startScreenCapture()
+            val serviceIntent = Intent(this, CaptureForegroundService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
+            else startService(serviceIntent)
+
+            handler.postDelayed({
+                try {
+                    val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    mediaProjection = manager.getMediaProjection(resultCode, data)
+                    startScreenCapture()
+                } catch (e: Exception) {
+                    analyzerError("Falha ao iniciar captura: ${e.javaClass.simpleName}")
+                    captureStatus.text = "ANÁLISE: falha ao iniciar captura"
+                    stopScreenCapture()
+                }
+            }, 250)
         } catch (e: Exception) {
-            analyzerError("Não foi possível iniciar o compartilhamento da tela.")
-            captureStatus.text = "ANÁLISE: falha ao compartilhar tela"
+            analyzerError("Falha ao iniciar serviço de captura: ${e.javaClass.simpleName}")
+            captureStatus.text = "ANÁLISE: falha no serviço de captura"
             stopScreenCapture()
         }
     }
 
     private fun startScreenCapture() {
-        val serviceIntent = Intent(this, CaptureForegroundService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
-        else startService(serviceIntent)
-
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getRealMetrics(metrics)
