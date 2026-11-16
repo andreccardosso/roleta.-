@@ -116,7 +116,14 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <p class="hint">Toque no botão e contorne a roleta na tela grande. Depois use dois dedos como pinça para ajustar o tamanho e arraste com um dedo para centralizar. O zoom da página fica bloqueado.</p>
  <div class="row"><button class="primary" id="markWheelArea">Desenhar círculo da roleta</button><span class="status" id="wheelAreaStatus">Área ainda não marcada</span></div>
   <div class="row" style="margin-top:10px"><button class="primary" id="startTracking">Iniciar rastreio automático</button><button id="stopTracking" disabled>Parar rastreio</button></div>
-  <p class="hint">Marque a área oval da roleta e toque em iniciar. O analisador tentará localizar o zero verde e a bolinha sem marcações manuais.</p>
+  <p class="hint">Marque a área oval da roleta (a borda do círculo deve ficar no aro logo depois dos números) e toque em iniciar. O analisador localiza o zero verde e a bolinha sem marcações manuais.</p>
+  <details class="setup">
+   <summary>Ajustes do rastreio</summary>
+   <div class="row" style="margin-top:6px">
+    <label for="thr" style="flex:1;min-width:150px;font-size:12px;color:var(--muted)">Brilho da bolinha: <b id="thrv" style="color:var(--text)">185</b><input id="thr" type="range" min="120" max="245" value="185" style="display:block;width:100%"></label>
+    <label for="mirror" style="font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center"><input type="checkbox" id="mirror">Imagem espelhada</label>
+   </div>
+  </details>
 </section>
 
 
@@ -139,11 +146,11 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 </section>
 
 <section class="panel" id="regionPanel">
- <h2>Região experimental · 13 números</h2>
+ <h2>Região experimental · zona provável</h2>
  <div class="status" id="zeroTrackingStatus" style="margin-bottom:9px"><span class="dot red"></span><span>ZERO NÃO LOCALIZADO</span></div>
  <div class="metric"><div class="name">Número central estimado</div><div class="value" id="regionCenter">Aguardando rastreio</div><div class="detail" id="regionStatus">Aguardando detecção simultânea do zero verde e da bolinha.</div></div>
  <div class="numberBoard" id="predictedRegion" style="margin-top:10px"></div>
- <p class="hint">Faixa exploratória: número central e seis vizinhos de cada lado na ordem europeia. Não é previsão garantida; depende da detecção visual e do alinhamento da roda.</p>
+ <p class="hint">Faixa exploratória: número central e vizinhos de cada lado na ordem europeia. A largura começa em 6 vizinhos e se ajusta (de 2 a 9) conforme o erro dos giros já medidos. Não é previsão garantida; depende da detecção visual e do alinhamento da roda.</p>
 </section>
 
 <section class="panel" id="historyPanel">
@@ -153,12 +160,13 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
   <div class="metric"><div class="name">Acertos na zona</div><div class="value" id="historyRate">—</div><div class="detail" id="chanceRate">Acaso: —</div></div>
  </div>
  <div class="row" style="margin-top:10px;align-items:end">
-  <label style="flex:1;min-width:120px;font-size:12px;color:var(--muted)">Número que realmente caiu
+  <label style="flex:1;min-width:120px;font-size:12px;color:var(--muted)">Número que realmente caiu (corrige o último giro)
    <input id="actualNumber" type="number" min="0" max="36" inputmode="numeric" placeholder="0 a 36" style="display:block;width:100%;margin-top:5px;padding:10px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);color:var(--text)">
   </label>
   <button class="primary" id="saveResult">Registrar resultado</button>
+  <button id="clearHistory">Zerar histórico</button>
  </div>
- <p class="hint" id="historyStatus">A correção manual só fica disponível depois de uma estimativa calculada.</p>
+ <p class="hint" id="historyStatus">Cada giro é registrado sozinho quando a bolinha cai. Use o campo acima se a leitura automática errar o número.</p>
  <div id="historyList" class="hint" style="max-height:130px;overflow:auto"></div>
 </section>
 <section class="panel">
@@ -175,10 +183,10 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
    <div class="detail" id="wheelState">O rastreamento angular da roda ainda não foi iniciado.</div>
   </div>
  </div>
- <p class="hint" style="margin-top:12px">O rastreamento experimental procura os detalhes visuais marcados em quadros sucessivos. A bola será medida em pixels por segundo (não m/s, pois falta escala física); a roda será estimada em RPM. Se a imagem mudar ou a referência desaparecer, a leitura será sinalizada como perdida.</p>
+ <p class="hint" style="margin-top:12px">O rastreio mede a volta da bolinha (em voltas por segundo) e a da roda (em RPM) pelo ângulo em relação ao centro marcado. Se a imagem mudar ou a referência desaparecer, a leitura será sinalizada como perdida.</p>
 </section>
 
-<p class="foot">O aplicativo trabalha exclusivamente com o vídeo compartilhado. A captura depende do suporte do navegador e da autorização concedida pelo usuário.</p>
+<p class="foot">O aplicativo trabalha exclusivamente com o vídeo compartilhado. A captura depende do suporte do navegador e da autorização concedida pelo usuário. O salto final da bolinha entre os separadores não é medido, por isso a zona é larga e o erro é registrado giro a giro. A taxa de acerto acima do acaso, em dezenas de giros, é o único sinal de que a estimativa vale algo. Muitas plataformas proíbem ferramentas de apoio ao jogo; confira as regras da sua.</p>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -308,83 +316,212 @@ screenVideo.addEventListener('loadedmetadata', () => {
  }
 });
 
+/* ===================================================================
+   MOTOR DE LEITURA DA RODA (sem DOM)
+   Anel polar normalizado pela elipse marcada: rho=1 é o aro depois dos
+   números; roda rho<0.84; pista da bolinha rho>1.05.
+   =================================================================== */
+const TAU=Math.PI*2,STEP=TAU/37,NB=120;
+const BAND_LO=0.84,BAND_HI=1.05,RHO_MIN=0.42,RHO_MAX=1.75;
+const MINPIX=8;
+const europeanWheel=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+const WHEEL=europeanWheel;
+const REDS=[1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+
+function wrapPi(a){return a-TAU*Math.round(a/TAU);}
+function linfit(xs,ys){const n=xs.length;let sx=0,sy=0,sxx=0,sxy=0;for(let i=0;i<n;i++){sx+=xs[i];sy+=ys[i];sxx+=xs[i]*xs[i];sxy+=xs[i]*ys[i];}const d=n*sxx-sx*sx;if(Math.abs(d)<1e-9)return null;const b=(n*sxy-sx*sy)/d;return{a:(sy-b*sx)/n,b:b};}
+function median(a){if(!a.length)return null;const s=a.slice().sort(function(x,y){return x-y;});return s[s.length>>1];}
+function pocketOf(phi,mirror){const k=((Math.round(phi/STEP)%37)+37)%37;return mirror?(37-k)%37:k;}
+function pocketAngle(k,mirror){return(mirror?-k:k)*STEP;}
+function cdist(a,b){const d=Math.abs(a-b)%37;return Math.min(d,37-d);}
+
+function buildRing(W,H,cal){
+  const idx=[],ang=[],rho=[];
+  for(let y=0;y<H;y++){const v=(y-cal.cy)/cal.ry;for(let x=0;x<W;x++){const u=(x-cal.cx)/cal.rx;const r=Math.sqrt(u*u+v*v);
+    if(r>=RHO_MIN&&r<=RHO_MAX){idx.push(y*W+x);ang.push(Math.atan2(v,u));rho.push(r);}}}
+  return{idx:Int32Array.from(idx),ang:Float32Array.from(ang),rho:Float32Array.from(rho)};
+}
+
+/* Bolinha: pixels claros, que acenderam em relação ao quadro anterior, pouco saturados, fora do aro dos números.
+   Zero: pixels verdes dentro da roda. */
+function analyzeFrame(img,ring,prev,thr){
+  const n=ring.idx.length;
+  const c=new Float32Array(NB),sn=new Float32Array(NB),cs=new Float32Array(NB),rh=new Float32Array(NB);
+  let gS=0,gC=0,gN=0;
+  for(let k=0;k<n;k++){
+    const p=ring.idx[k]<<2,r=img[p],g=img[p+1],b=img[p+2];
+    const Y=(r*77+g*150+b*29)>>8,rho=ring.rho[k];
+    if(rho<=0.9&&g-r>35&&g-b>-5&&g>55){const a=ring.ang[k];gS+=Math.sin(a);gC+=Math.cos(a);gN++;}
+    if(Y>=thr&&Y-prev[k]>45&&(rho<BAND_LO||rho>BAND_HI)){
+      const mx=r>g?(r>b?r:b):(g>b?g:b),mn=r<g?(r<b?r:b):(g<b?g:b);
+      if(mx-mn<70){const a=ring.ang[k],bi=Math.min(NB-1,((a+Math.PI)/TAU*NB)|0);c[bi]++;sn[bi]+=Math.sin(a);cs[bi]+=Math.cos(a);rh[bi]+=rho;}
+    }
+    prev[k]=Y;
+  }
+  const c3=new Float32Array(NB);
+  for(let i=0;i<NB;i++)c3[i]=c[(i+NB-1)%NB]+c[i]+c[(i+1)%NB];
+  let peaks=[];
+  for(let i=0;i<NB;i++){if(c3[i]>=MINPIX&&c3[i]>=c3[(i+NB-1)%NB]&&c3[i]>c3[(i+1)%NB])peaks.push(i);}
+  peaks.sort(function(a,b){return c3[b]-c3[a];});
+  peaks=peaks.slice(0,4);
+  const cands=peaks.map(function(i){let s=0,co=0,rr=0,cc=0;for(let d=-1;d<=1;d++){const j=(i+d+NB)%NB;s+=sn[j];co+=cs[j];rr+=rh[j];cc+=c[j];}return{ang:Math.atan2(s,co),rho:rr/cc,cnt:cc};});
+  return{cands:cands,zero:{n:gN,s:gS,c:gC}};
+}
+
+/* Velocidade da bolinha (rad/s): |B(t)-B(t-0.45s)| / dt */
+function ballSpeeds(sp){
+  const n=sp.T.length,out=[];let j=0;
+  for(let i=0;i<n;i++){while(sp.T[i]-sp.T[j]>0.45)j++;
+    if(i-j>=3){const dt=sp.T[i]-sp.T[j];out.push([(sp.T[i]+sp.T[j])/2,Math.abs(sp.B[i]-sp.B[j])/dt]);}}
+  return out;
+}
+
+/* Viés circular e largura da zona a partir dos últimos 60 resíduos */
+function model(spins){
+  const r=[];for(let i=Math.max(0,spins.length-60);i<spins.length;i++){if(typeof spins[i].res==='number')r.push(spins[i].res);}
+  const n=r.length;
+  if(n<5)return{n:n,C:0,R:0,w:6,ready:false};
+  let s=0,c=0;for(let i=0;i<n;i++){s+=Math.sin(r[i]);c+=Math.cos(r[i]);}
+  const R=Math.hypot(s,c)/n,C=Math.atan2(s,c);
+  const sig=Math.sqrt(-2*Math.log(Math.max(R,0.05)));
+  const w=Math.max(2,Math.min(9,Math.ceil(1.28*sig/STEP)));
+  return{n:n,C:C,R:R,w:w,ready:true};
+}
+
+/* Previsão: desaceleração linear da bolinha, velocidade crítica da queda, ângulo relativo à roda */
+function predictSpin(sp,mdl,critList,mirror){
+  const n=sp.T.length;if(n<24)return null;
+  const tNow=sp.T[n-1];
+  const pts=ballSpeeds(sp).filter(function(p){return p[0]>=tNow-3.2;});
+  if(pts.length<8)return null;
+  const f=linfit(pts.map(function(p){return p[0]-tNow;}),pts.map(function(p){return p[1];}));
+  if(!f)return null;
+  const vNow=f.a,b=f.b;
+  if(b>-0.05||vNow<=0)return null;
+  const crit=median(critList.slice(-30))||7.5;
+  const D=vNow>crit?(vNow-crit)/(-b):0;
+  if(D>25)return null;
+  let k=n-1;while(k>0&&tNow-sp.T[k]<1.5)k--;
+  const zs=(sp.Z[n-1]-sp.Z[k])/Math.max(1e-3,sp.T[n-1]-sp.T[k]);
+  const dir=sp.dir;
+  const phiNow=sp.B[n-1]-sp.Z[n-1];
+  const phiDrop=phiNow+dir*(vNow*D+b*D*D/2)-zs*D;
+  const phiFin=phiDrop+dir*mdl.C;
+  return{k:pocketOf(phiFin,mirror),w:mdl.w,phiDrop:phiDrop,dir:dir,D:D,vNow:vNow,t:tNow,crit:crit};
+}
+
+function Engine(W,H,cal,opts){
+  this.W=W;this.H=H;this.cal=cal;
+  this.ring=buildRing(W,H,cal);
+  this.prev=new Uint8Array(this.ring.idx.length);
+  this.thr=opts.thr||185;this.mirror=!!opts.mirror;this.hist=opts.hist;
+  this.onEnd=opts.onEnd||function(){};
+  this.primed=false;this.cool=-1;
+  this.zero={ok:false,raw:0,Z:0,t:0,vel:0,miss:0,seen:0,px:0};
+  this.tk={locked:false,dir:0,raw:0,B:0,v:0,lastSeen:0,pend:null};
+  this.spin=null;
+}
+Engine.prototype._zero=function(z,t){
+  const Zs=this.zero;
+  Zs.px=z.n;
+  if(z.n>=10){
+    const raw=Math.atan2(z.s,z.c);
+    if(!Zs.ok){Zs.ok=true;Zs.raw=raw;Zs.Z=raw;Zs.t=t;Zs.vel=0;Zs.miss=0;Zs.seen=t;}
+    else{const dt=Math.max(1e-3,t-Zs.t),d=wrapPi(raw-Zs.raw);Zs.Z+=d;Zs.raw=raw;const v=d/dt;if(Math.abs(v)<12)Zs.vel=Zs.vel*0.8+v*0.2;Zs.t=t;Zs.miss=0;Zs.seen=t;}
+  }else if(Zs.ok){const dt=t-Zs.t;Zs.Z+=Zs.vel*dt;Zs.raw=wrapPi(Zs.raw+Zs.vel*dt);Zs.t=t;Zs.miss++;}
+};
+Engine.prototype._acquire=function(c,t){
+  const tk=this.tk;
+  if(t<this.cool||!this.zero.ok){tk.pend=null;return;}
+  const p=tk.pend;
+  if(p&&t-p.t<0.35){
+    let bd=null,bdd=0;
+    for(let i=0;i<c.length;i++){const cd=c[i],d=wrapPi(cd.ang-p.ang);
+      if(Math.abs(d)>0.01&&Math.abs(d)<1.8&&(p.cum===0||Math.sign(d)===Math.sign(p.cum))){if(!bd||cd.cnt>bd.cnt){bd=cd;bdd=d;}}}
+    if(bd){p.cum+=bdd;p.count++;p.ang=bd.ang;p.t=t;
+      if(p.count>=5&&Math.abs(p.cum)>=1.2&&bd.rho>=BAND_HI)this._start(bd,t,p);}
+  }else if(c.length){tk.pend={ang:c[0].ang,t:t,t0:t,cum:0,count:1};}
+  else tk.pend=null;
+};
+Engine.prototype._start=function(bd,t,p){
+  const tk=this.tk;
+  tk.locked=true;tk.dir=Math.sign(p.cum);tk.raw=bd.ang;tk.B=bd.ang;tk.v=Math.abs(p.cum)/Math.max(0.05,t-p.t0);tk.lastSeen=t;tk.pend=null;
+  this.spin={T:[t],B:[bd.ang],Z:[this.zero.Z],R:[bd.rho],dir:tk.dir,dropped:false,wasTrack:true,inCnt:0,pred:null,lastPredT:-1,t0:t};
+};
+Engine.prototype._end=function(t){
+  const sp=this.spin,tk=this.tk;
+  tk.locked=false;tk.pend=null;this.spin=null;this.cool=t+3;
+  if(!sp)return null;
+  const n=sp.T.length;
+  if(n<20||sp.T[n-1]-sp.T[0]<2)return null;
+  const phiAct=sp.B[n-1]-sp.Z[n-1];
+  const e={t:Date.now(),valid:false,kPred:null,w:null,kReal:null,hit:null,res:null,dir:sp.dir,phiDrop:null,phiAct:phiAct};
+  if(sp.dropped&&sp.R[n-1]<0.9){e.valid=true;e.kReal=pocketOf(phiAct,this.mirror);}
+  if(sp.pred){e.kPred=sp.pred.k;e.w=sp.pred.w;e.phiDrop=sp.pred.phiDrop;
+    if(e.valid){e.hit=cdist(e.kReal,e.kPred)<=e.w;e.res=sp.dir*wrapPi(phiAct-sp.pred.phiDrop);}}
+  this.hist.spins.push(e);
+  if(this.hist.spins.length>200)this.hist.spins.shift();
+  this.onEnd(e);
+  return e;
+};
+Engine.prototype.finish=function(t){if(this.spin)this._end(t);};
+Engine.prototype.frame=function(img,t){
+  const a=analyzeFrame(img,this.ring,this.prev,this.primed?this.thr:999);
+  this.primed=true;
+  this._zero(a.zero,t);
+  const tk=this.tk;let ball=null;
+  if(!tk.locked){this._acquire(a.cands,t);}
+  else{
+    const gap=t-tk.lastSeen,exp=tk.raw+tk.dir*tk.v*gap;
+    let best=null,bestScore=1e9,bestDelta=0;
+    for(let i=0;i<a.cands.length;i++){
+      const cd=a.cands[i];let ok,delta,score;
+      if(gap>0.3&&cd.rho<0.9){ok=true;delta=wrapPi(cd.ang-tk.raw);score=-cd.cnt;}
+      else{const d=wrapPi(cd.ang-exp);ok=Math.abs(d)<Math.min(1.2,0.5+gap*3);delta=tk.dir*tk.v*gap+d;score=Math.abs(d);}
+      if(ok&&score<bestScore){bestScore=score;best=cd;bestDelta=delta;}
+    }
+    if(best){
+      const sp=this.spin;
+      if(gap<0.25&&gap>1e-3){const inst=Math.abs(bestDelta)/gap;if(inst<40)tk.v=tk.v*0.7+inst*0.3;}
+      tk.B+=bestDelta;tk.raw=best.ang;tk.lastSeen=t;ball=best;
+      sp.T.push(t);sp.B.push(tk.B);sp.Z.push(this.zero.Z);sp.R.push(best.rho);
+      if(best.rho<0.9)sp.inCnt++;else sp.inCnt=0;
+      if(!sp.dropped&&sp.inCnt>=3&&sp.wasTrack){
+        sp.dropped=true;
+        const sv=ballSpeeds(sp),last=sv[sv.length-1];
+        if(last&&last[1]>2&&last[1]<40){this.hist.crit.push(last[1]);if(this.hist.crit.length>60)this.hist.crit.shift();}
+      }
+      if(!sp.dropped&&best.rho>=BAND_HI&&t-sp.lastPredT>0.25){
+        sp.lastPredT=t;
+        const p=predictSpin(sp,model(this.hist.spins),this.hist.crit,this.mirror);
+        if(p)sp.pred=p;
+      }
+    }else if(gap>1.4||(this.spin&&t-this.spin.t0>70)){this._end(t);}
+  }
+  const sp=this.spin;
+  return{ball:ball,zero:this.zero.ok?{raw:this.zero.raw}:null,zeroMiss:this.zero.miss,zeroAge:this.zero.ok?t-this.zero.seen:null,zeroPx:this.zero.px,locked:tk.locked,
+    vBall:tk.locked?tk.v:0,vWheel:Math.abs(this.zero.vel),laps:sp?Math.abs(tk.B)/TAU:0,
+    phase:sp?(sp.dropped?'roda':'pista'):'espera',pred:sp?sp.pred:null,dropped:sp?sp.dropped:false,t:t};
+};
+
+/* ===================================================================
+   INTEGRAÇÃO COM A PÁGINA
+   =================================================================== */
 let tracking = false;
 let trackingCallbackId = null;
 let trackingCanvas = document.createElement('canvas');
 let trackingCtx = trackingCanvas.getContext('2d', {willReadFrequently:true});
-let templates = {ball:null,wheel:null};
-let tracked = {ball:null,wheel:null};
-let previousTrackTime = null;
-let ballPixelSpeed = null;
-let wheelAnglePrevious = null;
-let wheelAngleAccum = 0;
-let wheelRpm = null;
-let previousFrameData = null;
-let ballAnglePrevious = null, ballAngleUnwrapped = 0, ballOmega = null;
-let zeroAnglePrevious = null, zeroAngleUnwrapped = 0, wheelOmega = null, zeroAngleInitialized = false, lastBallTime = null, lastZeroSeenAt = null, lastZeroUnwrapped = null;
-let ballLockCount=0,ballLockTravel=0,ballLockDirection=0,ballLocked=false;
-let ballMotionHistory = [], ballAngleSamples = [];
-let pendingPrediction = null;
 let trackingFrameBusy = false;
-const europeanWheel=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
-function showPossibleRegion(centerIndex,confidence){
- const center=((centerIndex%37)+37)%37,dir=wheelRpm!==null&&wheelRpm<0?-1:1;
- const indices=[];for(let offset=-6;offset<=6;offset++)indices.push(europeanWheel[(center+offset*dir+370)%37]);
- $('regionCenter').textContent=String(europeanWheel[center]);
- $('regionStatus').textContent='Centro calculado pela posição angular relativa · confiança visual '+Math.round(confidence*100)+'% · experimental';
- $('predictedRegion').innerHTML=indices.map((n,i)=>'<div class="pocket '+(n===0?'green':([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36].includes(n)?'red':'black'))+'" style="'+(i===6?'outline:2px solid #f3d58d;':'')+'">'+n+'</div>').join('');
-}
-function clearPossibleRegion(message){
- $('regionCenter').textContent='—';$('regionStatus').textContent=message||'Aguardando detecção simultânea do zero verde e da bolinha.';
- $('predictedRegion').innerHTML='';
-}
+let eng = null, engKey = '', lastT = -1, lastPaint = 0;
+let trackThr = 185, trackMirror = false;
+let lastSpin = null, lastZone = null, regionKey = '';
 
+const HIST_KEY='roulette-spin-history-v2';
+let hist=(function(){try{const j=JSON.parse(localStorage.getItem(HIST_KEY)||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
+function saveHist(){try{localStorage.setItem(HIST_KEY,JSON.stringify(hist));}catch(e){}}
 
-function normalizedToCanvas(p){
- return {x:Math.round(p.x*trackingCanvas.width),y:Math.round(p.y*trackingCanvas.height)};
-}
-function grayPatch(data,w,cx,cy,r=6){
- const values=[];
- for(let y=cy-r;y<=cy+r;y++) for(let x=cx-r;x<=cx+r;x++){
-  const i=(y*w+x)*4;
-  values.push((data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114)/255);
- }
- return values;
-}
-function captureTemplate(data,w,h,p){
- const q=normalizedToCanvas(p), r=6;
- if(q.x<r||q.y<r||q.x>=w-r||q.y>=h-r)return null;
- return {values:grayPatch(data,w,q.x,q.y,r),x:q.x,y:q.y,r};
-}
-function matchPatch(data,w,h,template,previous){
- const r=template.r, search=120, step=3;
- let best=-2,bestX=previous.x,bestY=previous.y;
- const t=template.values, n=t.length;
- let meanT=t.reduce((a,b)=>a+b,0)/n;
- let normT=Math.sqrt(t.reduce((a,b)=>a+(b-meanT)**2,0));
- if(normT<0.025)return null;
- for(let cy=Math.max(r,previous.y-search);cy<=Math.min(h-r-1,previous.y+search);cy+=step){
-  for(let cx=Math.max(r,previous.x-search);cx<=Math.min(w-r-1,previous.x+search);cx+=step){
-   const p=grayPatch(data,w,cx,cy,r);
-   const meanP=p.reduce((a,b)=>a+b,0)/n;
-   let numerator=0,normP=0;
-   for(let i=0;i<n;i++){const a=t[i]-meanT,b=p[i]-meanP;numerator+=a*b;normP+=b*b;}
-   const score=normP>0?numerator/(normT*Math.sqrt(normP)):-1;
-   if(score>best){best=score;bestX=cx;bestY=cy;}
-  }
- }
- return {x:bestX,y:bestY,confidence:best};
-}
+function pocketClass(n){return n===0?'green':(REDS.includes(n)?'red':'black');}
 function trackingStatus(text){$('wheelAreaStatus').textContent=text;}
-function ellipseCoordinates(x,y){
- const a=wheelArea;if(!a)return null;
- const cx=a.cx*trackingCanvas.width,cy=a.cy*trackingCanvas.height;
- const rx=Math.max(8,a.rx*trackingCanvas.width),ry=Math.max(8,a.ry*trackingCanvas.height);
- const angle=Number(a.rotation||0),dx=x-cx,dy=y-cy,ca=Math.cos(angle),sa=Math.sin(angle);
- const ex=dx*ca+dy*sa,ey=-dx*sa+dy*ca;
- return {radius:Math.hypot(ex/rx,ey/ry),angle:Math.atan2(ey/ry,ex/rx),ex,ey,cx,cy,rx,ry};
-}
-function wrapAngle(a){while(a>Math.PI)a-=2*Math.PI;while(a< -Math.PI)a+=2*Math.PI;return a;}
 function setZeroStatus(state,detail){
  const el=$('zeroTrackingStatus');if(!el)return;
  const dot=el.querySelector('.dot'),label=el.querySelector('span:last-child');
@@ -393,198 +530,145 @@ function setZeroStatus(state,detail){
  else{dot.className='dot red';label.textContent='ZERO NÃO LOCALIZADO';}
  el.title=detail||label.textContent;
 }
-function circularMean(points){
- let sx=0,sy=0,sw=0;
- for(const p of points){sx+=Math.cos(p.angle)*p.weight;sy+=Math.sin(p.angle)*p.weight;sw+=p.weight;}
- return sw?Math.atan2(sy,sx):null;
+
+function qualityText(){
+ const m=model(hist.spins);
+ if(!m.ready)return 'aprendendo: '+m.n+' de 5 giros medidos';
+ if(m.R<0.35)return m.n+' giros, erro muito espalhado (ainda é palpite)';
+ return m.n+' giros, erro concentrado (índice '+m.R.toFixed(2)+')';
 }
-function detectGreenZero(data,w,h){
- if(!wheelArea)return null;
- const points=[];let count=0;
- for(let y=1;y<h;y+=2)for(let x=1;x<w;x+=2){
-  const q=ellipseCoordinates(x,y);if(!q||q.radius>0.90||q.radius<0.18)continue;
-  const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2];
-  if(g-r>35&&g>55&&g>b*1.12){points.push({angle:q.angle,weight:g-r+1});count++;}
- }
- if(count<5||count>2400)return null;
- const angle=circularMean(points);
- if(angle===null)return null;
- return {angle,confidence:Math.min(1,count/45),pixels:count};
-}
-function detectMovingBall(data,w,h,oldData,previousAngle,predictedDelta){
- if(!wheelArea||!oldData||oldData.length!==data.length)return null;
- const bins=120,hist=new Float32Array(bins),sumX=new Float32Array(bins),sumY=new Float32Array(bins),sumRho=new Float32Array(bins);
- for(let y=2;y<h-2;y+=2)for(let x=2;x<w-2;x+=2){
-  const q=ellipseCoordinates(x,y);if(!q||q.radius<=1.12||q.radius>1.42)continue;
-  const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2];
-  const hi=Math.max(r,g,b),lo=Math.min(r,g,b),Y=.299*r+.587*g+.114*b;
-  const oldY=.299*oldData[i]+.587*oldData[i+1]+.114*oldData[i+2];
-  if(Y<185||Y-oldY<45||hi-lo>=70)continue;
-  const a=(q.angle+Math.PI)/(2*Math.PI),bin=((Math.floor(a*bins)%bins)+bins)%bins;
-  hist[bin]++;sumX[bin]+=x;sumY[bin]+=y;sumRho[bin]+=q.radius;
- }
- const smooth=new Float32Array(bins);
- for(let i=0;i<bins;i++)smooth[i]=(hist[(i+bins-1)%bins]+hist[i]+hist[(i+1)%bins])/3;
- let peaks=[];
- for(let i=0;i<bins;i++){
-  const left=smooth[(i+bins-1)%bins],right=smooth[(i+1)%bins];
-  if(smooth[i]>=8&&smooth[i]>=left&&smooth[i]>=right){
-   const raw=hist[(i+bins-1)%bins]+hist[i]+hist[(i+1)%bins];
-   if(raw<8)continue;
-   let sx=0,sy=0,sr=0,weight=0;
-   for(let d=-1;d<=1;d++){const j=(i+d+bins)%bins;sx+=sumX[j];sy+=sumY[j];sr+=sumRho[j];weight+=hist[j];}
-   if(weight)peaks.push({angle:wrapAngle((i+.5)/bins*2*Math.PI-Math.PI),x:sx/weight,y:sy/weight,rho:sr/weight,confidence:Math.min(1,weight/24),pixels:weight});
+/* Desenha a zona (centro + vizinhos) só quando ela muda. */
+function paintRegion(k,w,text){
+ const key=k===null?'none':k+':'+w;
+ if(key!==regionKey){
+  regionKey=key;
+  if(k===null){$('regionCenter').textContent='—';$('predictedRegion').innerHTML='';}
+  else{
+   const nums=[];for(let d=-w;d<=w;d++)nums.push(WHEEL[(k+d+37)%37]);
+   $('regionCenter').textContent=String(WHEEL[k]);
+   $('predictedRegion').innerHTML=nums.map((n,i)=>'<div class="pocket '+pocketClass(n)+'" style="'+(i===w?'outline:2px solid #f3d58d;':'')+'">'+n+'</div>').join('');
   }
  }
- if(!peaks.length)return null;
- const expected=previousAngle===null?null:wrapAngle(previousAngle+(predictedDelta||0));
- peaks.sort((a,b)=>{
-  const sa=a.pixels*(expected===null?1:1/(.25+Math.abs(wrapAngle(a.angle-expected))));
-  const sb=b.pixels*(expected===null?1:1/(.25+Math.abs(wrapAngle(b.angle-expected))));
-  return sb-sa;
- });
- return peaks[0];
+ $('regionStatus').textContent=text;
 }
-function linearSlope(samples){
- if(samples.length<5)return null;
- const t0=samples[0].t;
- let sx=0,sy=0,sxx=0,sxy=0,n=samples.length;
- for(const p of samples){const x=p.t-t0;sx+=x;sy+=p.v;sxx+=x*x;sxy+=x*p.v;}
- const den=n*sxx-sx*sx;return Math.abs(den)<1e-8?null:(n*sxy-sx*sy)/den;
+function clearPossibleRegion(message){
+ if(lastZone){
+  const e=lastSpin;
+  const res=e&&e.valid?(' · caiu '+WHEEL[e.kReal]+' ('+(e.hit?'acertou':(e.hit===false?'errou':'sem previsão a comparar'))+')'):'';
+  paintRegion(lastZone.k,lastZone.w,'Último giro: previsto '+WHEEL[lastZone.k]+' · ±'+lastZone.w+' casas'+res+(message?' · '+message:''));
+ }else paintRegion(null,0,message||'Aguardando detecção simultânea do zero verde e da bolinha.');
 }
-function loadHistory(){try{return JSON.parse(localStorage.getItem('roulette-spin-history-v1')||'[]');}catch(e){return [];}}
+
 function renderHistory(){
- const h=loadHistory(),n=h.length,ok=h.filter(x=>x.hit).length,avgW=n?h.reduce((a,x)=>a+x.w,0)/n:6;
- $('historyCount').textContent=String(n);
- $('historyRate').textContent=n?(ok/n*100).toFixed(1)+'%':'—';
- $('chanceRate').textContent=n?'Acaso médio estimado: '+((2*avgW+1)/37*100).toFixed(1)+'%':'Acaso: —';
- $('historyList').textContent=h.slice(-8).reverse().map(x=>'Previsto '+x.predicted+' · caiu '+x.actual+' · '+(x.hit?'acertou':'errou')+' · zona ±'+x.w).join(' | ');
+ const v=hist.spins.filter(e=>e.valid&&e.kPred!==null),hits=v.filter(e=>e.hit).length;
+ const chance=v.length?v.reduce((a,e)=>a+(2*e.w+1)/37,0)/v.length:0;
+ $('historyCount').textContent=String(v.length);
+ $('historyRate').textContent=v.length?hits+' ('+Math.round(hits/v.length*100)+'%)':'—';
+ $('chanceRate').textContent=v.length?'Acaso médio estimado: '+(chance*100).toFixed(1)+'%':'Acaso: —';
+ $('historyList').textContent=hist.spins.slice(-8).reverse().map(e=>'Previsto '+(e.kPred!==null?WHEEL[e.kPred]:'–')+' · caiu '+(e.valid?WHEEL[e.kReal]:'?')+' · '+(e.hit?'acertou':(e.hit===false?'errou':'sem dado'))+(e.w!==null?' · zona ±'+e.w:'')).join(' | ');
 }
-function learnedBiasAndWidth(){
- const residuals=loadHistory().map(x=>x.residual).filter(Number.isFinite).slice(-60);
- if(residuals.length<8)return {bias:0,w:6,R:0,n:residuals.length};
- let sx=0,sy=0;
- for(const r of residuals){const a=r*2*Math.PI/37;sx+=Math.cos(a);sy+=Math.sin(a);}
- const R=Math.min(1,Math.hypot(sx,sy)/residuals.length),C=Math.atan2(sy,sx);
- const sigma=Math.sqrt(-2*Math.log(Math.max(R,.05)));
- const w=Math.max(2,Math.min(9,Math.ceil(1.28*sigma/(2*Math.PI/37))));
- return {bias:C/(2*Math.PI/37),w,R,n:residuals.length};
-}
-function showPrediction(center,w,confidence,seconds){
- const learned=learnedBiasAndWidth();
- const adjusted=Math.round(center+learned.bias);
- w=learned.n>=8?learned.w:w;
- const c=((adjusted%37)+37)%37,dir=1,nums=[];
- for(let k=-w;k<=w;k++)nums.push(europeanWheel[(c+k*dir+370)%37]);
- $('regionCenter').textContent=String(europeanWheel[c]);
- $('regionStatus').textContent='Estimativa experimental · ±'+w+' casas · queda em '+seconds.toFixed(2)+' s · confiança visual '+Math.round(confidence*100)+'%';
- $('predictedRegion').innerHTML=nums.map((n,i)=>'<div class="pocket '+(n===0?'green':([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36].includes(n)?'red':'black'))+'" style="'+(i===w?'outline:2px solid #f3d58d;':'')+'">'+n+'</div>').join('');
- pendingPrediction={predicted:europeanWheel[c],w,confidence,created:Date.now(),bias:learned.bias};
- $('historyStatus').textContent='Estimativa pronta para ser comparada com o resultado real.';
+function onSpinEnd(e){
+ lastSpin=e;
+ lastZone=e.kPred!==null?{k:e.kPred,w:e.w}:null;
+ saveHist();renderHistory();
+ $('historyStatus').textContent=(e.valid?'Giro registrado: caiu no '+WHEEL[e.kReal]+' (leitura automática). ':'Giro registrado, mas não consegui ler onde caiu. ')+'Se estiver errado, digite o número e toque em Registrar resultado. '+qualityText()+'.';
 }
 function recordActual(){
  const actual=Number($('actualNumber').value);
  if(!Number.isInteger(actual)||actual<0||actual>36){$('historyStatus').textContent='Digite um número inteiro entre 0 e 36.';return;}
- if(!pendingPrediction){$('historyStatus').textContent='Ainda não existe uma estimativa válida para registrar.';return;}
- const index=n=>europeanWheel.indexOf(n);
- const raw=(index(actual)-index(pendingPrediction.predicted)+37)%37;
- const signed=raw>18?raw-37:raw;
- const distance=Math.abs(signed);
- const h=loadHistory();h.push({...pendingPrediction,actual,hit:distance<=pendingPrediction.w,residual:signed,at:new Date().toISOString()});
- try{localStorage.setItem('roulette-spin-history-v1',JSON.stringify(h.slice(-300)));}catch(e){}
- pendingPrediction=null;$('actualNumber').value='';$('historyStatus').textContent='Resultado registrado. A taxa será comparada com a taxa esperada ao acaso.';
- renderHistory();
+ const e=lastSpin;
+ if(!e||hist.spins[hist.spins.length-1]!==e){$('historyStatus').textContent='Ainda não há giro finalizado para corrigir. O giro é registrado quando a bolinha cai e some do quadro.';return;}
+ const k=WHEEL.indexOf(actual);
+ e.valid=true;e.kReal=k;
+ if(e.kPred!==null&&e.phiDrop!==null){e.hit=cdist(k,e.kPred)<=e.w;e.res=e.dir*wrapPi(pocketAngle(k,trackMirror)-e.phiDrop);}
+ $('actualNumber').value='';saveHist();renderHistory();
+ $('historyStatus').textContent='Resultado corrigido para '+actual+'. '+qualityText()+'.';
+ clearPossibleRegion('');
 }
 $('saveResult').addEventListener('click',recordActual);
-renderHistory();
+$('clearHistory').addEventListener('click',()=>{
+ hist.spins=[];hist.crit=[];lastSpin=null;lastZone=null;saveHist();renderHistory();regionKey='';clearPossibleRegion('');
+ $('historyStatus').textContent='Histórico zerado.';
+});
+$('thr').addEventListener('input',function(){trackThr=+this.value;$('thrv').textContent=this.value;if(eng)eng.thr=trackThr;});
+$('mirror').addEventListener('change',function(){trackMirror=this.checked;if(eng)eng.mirror=trackMirror;});
+
+function frameSize(){
+ const vw=sourceWidth(),vh=sourceHeight(),scale=Math.min(1,720/vw);
+ return {w:Math.max(1,Math.round(vw*scale)),h:Math.max(1,Math.round(vh*scale))};
+}
+function engineKey(s){const a=wheelArea;return s.w+'x'+s.h+':'+a.cx+','+a.cy+','+a.rx+','+a.ry;}
+function buildEngine(s){
+ const a=wheelArea;
+ trackingCanvas.width=s.w;trackingCanvas.height=s.h;
+ const cal={cx:a.cx*s.w,cy:a.cy*s.h,rx:Math.max(8,a.rx*s.w),ry:Math.max(8,a.ry*s.h)};
+ eng=new Engine(s.w,s.h,cal,{thr:trackThr,mirror:trackMirror,hist:hist,onEnd:onSpinEnd});
+ engKey=engineKey(s);
+}
+
+function paintLive(i){
+ if(i.ball&&eng&&nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser){
+  const c=eng.cal,x=c.cx+c.rx*i.ball.rho*Math.cos(i.ball.ang),y=c.cy+c.ry*i.ball.rho*Math.sin(i.ball.ang);
+  window.AndroidCapture.showLaser(Math.min(1,Math.max(0,x/eng.W)),Math.min(1,Math.max(0,y/eng.H)));
+ }
+ const nowMs=performance.now();
+ if(nowMs-lastPaint<100)return;lastPaint=nowMs;
+ // roda
+ if(i.zero&&i.zeroMiss===0){
+  setZeroStatus('detected','Setor verde localizado no quadro atual · '+i.zeroPx+' pixels.');
+  $('wheelSpeed').textContent=(i.vWheel*60/TAU).toFixed(1)+' RPM';
+  $('wheelState').textContent='Zero verde detectado · '+i.zeroPx+' pixels';
+ }else if(i.zero&&i.zeroAge!==null&&i.zeroAge<=3){
+  setZeroStatus('following','Zero não aparece neste quadro; posição estimada pela última velocidade medida.');
+  $('wheelSpeed').textContent='Acompanhando';
+  $('wheelState').textContent='Posição do zero extrapolada · '+i.zeroAge.toFixed(1)+' s desde a última detecção.';
+ }else{
+  setZeroStatus('lost','O setor verde não foi localizado e não há extrapolação confiável.');
+  $('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Zero não localizado; aguardando nova detecção verde.';
+ }
+ // bolinha
+ if(i.locked){
+  $('ballSpeed').textContent=(i.vBall/TAU).toFixed(2)+' voltas/s';
+  const p=i.pred,eta=p&&i.phase==='pista'?' · queda em ~'+Math.max(0,p.D-(i.t-p.t)).toFixed(1)+' s':'';
+  $('ballState').textContent=(i.phase==='roda'?'Na roda':'Na pista')+' · '+i.laps.toFixed(1)+' voltas'+eta;
+ }else{
+  $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Aguardando pico móvel consistente na pista externa.';
+ }
+ // zona
+ const p=i.pred;
+ if(p){
+  const eta=Math.max(0,p.D-(i.t-p.t));
+  paintRegion(p.k,p.w,'Estimativa experimental · ±'+p.w+' casas · '+(i.dropped?'congelada na saída da pista':'queda em ~'+eta.toFixed(1)+' s')+' · '+qualityText());
+ }else if(i.locked)clearPossibleRegion('Rastreio ativo; aguardando desaceleração mensurável e velocidade crítica.');
+ else if(!i.zero)clearPossibleRegion('Aguardando o zero verde.');
+ else clearPossibleRegion('Aguardando lançamento. '+qualityText()+'.');
+}
+
 function stopTracking(){
  tracking=false;
+ if(eng){try{eng.finish(lastT+2);}catch(e){}eng=null;engKey='';}
  if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(-1,-1);
  if(trackingCallbackId!==null && typeof screenVideo.cancelVideoFrameCallback==='function')screenVideo.cancelVideoFrameCallback(trackingCallbackId);
  trackingCallbackId=null;
  $('startTracking').disabled=false;
  $('stopTracking').disabled=true;
 }
-function trackingFrame(now){
+function trackingFrame(now,meta){
  if(!tracking||!captureStream||(!nativeCaptureActive&&screenVideo.paused))return;
  if(trackingFrameBusy)return;trackingFrameBusy=true;
  try{
   const source=activeSource(),vw=sourceWidth(),vh=sourceHeight();
   if(nativeCaptureActive&&(!source.complete||!source.naturalWidth))return;
   if(!vw||!vh)throw new Error('Vídeo sem dimensões.');
-  const scale=Math.min(1,720/vw);
-  trackingCanvas.width=Math.max(1,Math.round(vw*scale));trackingCanvas.height=Math.max(1,Math.round(vh*scale));
+  const s=frameSize();
+  if(!wheelArea)throw new Error('Sem área da roleta.');
+  if(!eng||engineKey(s)!==engKey)buildEngine(s);
   trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
   const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
-  const dt=previousTrackTime===null?0:(now-previousTrackTime)/1000;
-  const green=detectGreenZero(frame.data,trackingCanvas.width,trackingCanvas.height);
-  const ball=detectMovingBall(frame.data,trackingCanvas.width,trackingCanvas.height,previousFrameData,ballAnglePrevious,ballOmega&&dt?ballOmega*dt:0);
-  if(green){
-   const gap=lastZeroSeenAt===null?Infinity:(now-lastZeroSeenAt)/1000;
-   if(zeroAnglePrevious!==null&&dt>0&&gap<=2.0){
-    const zeroDt=(now-lastZeroSeenAt)/1000,d=wrapAngle(green.angle-zeroAnglePrevious);
-    if(zeroDt>0.08){const measured=d/zeroDt;wheelOmega=wheelOmega===null?measured:.8*wheelOmega+.2*measured;}
-    zeroAngleUnwrapped=lastZeroUnwrapped===null?green.angle:lastZeroUnwrapped+d;
-    wheelRpm=wheelOmega===null?null:wheelOmega*60/(2*Math.PI);
-    if(wheelRpm!==null)$('wheelSpeed').textContent=Math.abs(wheelRpm).toFixed(1)+' RPM';
-   }else{zeroAngleUnwrapped=green.angle;zeroAngleInitialized=true;$('wheelSpeed').textContent='Calculando…';}
-   zeroAnglePrevious=green.angle;lastZeroUnwrapped=zeroAngleUnwrapped;lastZeroSeenAt=now;
-   setZeroStatus('detected','Setor verde localizado no quadro atual · '+green.pixels+' pixels.');
-   $('wheelState').textContent='Zero verde detectado · '+green.pixels+' pixels';
-  }else{
-   const sinceZero=lastZeroSeenAt===null?Infinity:(now-lastZeroSeenAt)/1000;
-   if(sinceZero<=2.0&&lastZeroUnwrapped!==null&&wheelOmega!==null){
-    zeroAngleUnwrapped=lastZeroUnwrapped+wheelOmega*sinceZero;
-    setZeroStatus('following','Zero não aparece neste quadro; posição estimada por até 2 segundos usando a última velocidade medida.');
-    $('wheelSpeed').textContent='Acompanhando';
-    $('wheelState').textContent='Posição do zero extrapolada · '+sinceZero.toFixed(1)+' s desde a última detecção.';
-   }else{
-    setZeroStatus('lost','O setor verde não foi localizado e não há extrapolação confiável.');
-    $('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Zero não localizado; aguardando nova detecção verde.';
-   }
-  }
-  if(ball){
-   if(ballAnglePrevious!==null&&lastBallTime!==null&&now/1000>lastBallTime){
-    const ballDt=now/1000-lastBallTime,d=wrapAngle(ball.angle-ballAnglePrevious);
-    ballAngleUnwrapped+=d;
-    ballAngleSamples.push({t:now/1000,a:ballAngleUnwrapped});
-    ballAngleSamples=ballAngleSamples.filter(p=>p.t>now/1000-3);
-    const reference=ballAngleSamples.find(p=>now/1000-p.t>=0.40);
-    ballOmega=reference?(ballAngleUnwrapped-reference.a)/(now/1000-reference.t):d/ballDt;
-    const sign=Math.sign(d);
-    if(sign&&(!ballLockDirection||sign===ballLockDirection)){ballLockDirection=sign;ballLockCount++;ballLockTravel+=Math.abs(d);}
-    else{ballLockDirection=sign;ballLockCount=1;ballLockTravel=Math.abs(d);ballLocked=false;}
-    if(ballLockCount>=5&&ballLockTravel>1.2)ballLocked=true;
-    ballMotionHistory.push({t:now/1000,v:Math.abs(ballOmega)});
-    ballMotionHistory=ballMotionHistory.filter(p=>p.t>now/1000-3).slice(-100);
-   }else{ballAngleUnwrapped=ball.angle;ballAngleSamples=[{t:now/1000,a:ballAngleUnwrapped}];ballMotionHistory=[];ballOmega=null;ballLockCount=1;ballLockTravel=0;ballLockDirection=0;ballLocked=false;}
-   ballAnglePrevious=ball.angle;lastBallTime=now/1000;tracked.ball=ball;
-   $('ballSpeed').textContent=ballOmega===null?'Calculando…':Math.abs(ballOmega).toFixed(2)+' rad/s';
-   $('ballState').textContent='Pico angular detectado · '+ball.pixels.toFixed(0)+' pixels · rho '+ball.rho.toFixed(2);
-   if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(ball.x/trackingCanvas.width,ball.y/trackingCanvas.height);
-  }else{
-   ballLockCount=0;ballLockTravel=0;ballLockDirection=0;ballLocked=false;
-   $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Aguardando pico móvel consistente na pista externa.';
-  }
-  if(green&&ball&&ballLocked&&ballOmega!==null&&wheelOmega!==null&&ballMotionHistory.length>=8){
-   const slope=linearSlope(ballMotionHistory);
-   const speed=Math.abs(ballOmega),vCrit=7.5;
-   if(slope!==null&&slope< -0.03&&speed>vCrit){
-    const D=(speed-vCrit)/(-slope);
-    if(D>0&&D<12){
-     const dir=Math.sign(ballOmega)||1;
-     const relativeNow=ballAngleUnwrapped-zeroAngleUnwrapped;
-     const projected=relativeNow+dir*(speed*D+.5*slope*D*D)-wheelOmega*D;
-     const sector=2*Math.PI/37;
-     const center=Math.round(projected/sector);
-     const recent=ballMotionHistory.length;
-     const confidence=Math.min(green.confidence,ball.confidence,Math.min(1,recent/25));
-     showPrediction(center,6,confidence,D);
-    }else clearPossibleRegion('Estimativa de queda fora da janela confiável.');
-   }else clearPossibleRegion('Rastreio ativo; aguardando desaceleração mensurável e velocidade crítica.');
-  }else clearPossibleRegion('Aguardando zero, bolinha e histórico angular suficiente.');
-  previousFrameData=new Uint8ClampedArray(frame.data);
-  previousTrackTime=now;
+  const t=((meta&&meta.captureTime)?meta.captureTime:now)/1000;
+  if(t<=lastT)return;
+  lastT=t;
+  paintLive(eng.frame(frame.data,t));
  }catch(e){
   $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Falha ao analisar o quadro.';
   $('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Falha ao analisar o quadro.';
@@ -595,14 +679,13 @@ function startTracking(){
  const source=activeSource();
  if(!captureStream||(!nativeCaptureActive&&screenVideo.readyState<2)||(nativeCaptureActive&&(!source.complete||!source.naturalWidth))){trackingStatus('Primeiro toque em Compartilhar tela para iniciar a captura.');return;}
  if(!wheelArea){trackingStatus('Primeiro desenhe e alinhe a área da roleta na tela do navegador.');return;}
- const vw=sourceWidth(),vh=sourceHeight(),scale=Math.min(1,720/vw);
- trackingCanvas.width=Math.max(1,Math.round(vw*scale));trackingCanvas.height=Math.max(1,Math.round(vh*scale));
- trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
- trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
- tracked.ball=null;previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;previousFrameData=null;ballAnglePrevious=null;ballAngleUnwrapped=0;ballOmega=null;lastBallTime=null;ballAngleSamples=[];ballLockCount=0;ballLockTravel=0;ballLockDirection=0;ballLocked=false;zeroAnglePrevious=null;zeroAngleUnwrapped=0;wheelOmega=null;zeroAngleInitialized=false;lastZeroSeenAt=null;lastZeroUnwrapped=null;setZeroStatus('lost','Aguardando a primeira detecção do setor verde.');ballMotionHistory=[];ballAngleSamples=[];pendingPrediction=null;clearPossibleRegion();
+ buildEngine(frameSize());
+ lastT=-1;lastSpin=null;lastZone=null;regionKey='';
+ setZeroStatus('lost','Aguardando a primeira detecção do setor verde.');clearPossibleRegion();
  tracking=true;$('startTracking').disabled=true;$('stopTracking').disabled=false;
  $('ballSpeed').textContent='Procurando…';$('wheelSpeed').textContent='Procurando…';
  $('ballState').textContent='Detectando a bolinha automaticamente…';$('wheelState').textContent='Detectando o zero verde automaticamente…';
+ $('historyStatus').textContent='Aprendendo com os giros: '+qualityText()+'.';
  if(nativeCaptureActive)trackingFrame(performance.now());
  else if(typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
  else{stopTracking();trackingStatus('Este navegador não oferece processamento de quadros.');}
@@ -629,7 +712,8 @@ window.onNativeFrame=function(dataUrl,width,height){
  nativeFrames++;$('frameCount').textContent=String(nativeFrames);
  const now=performance.now();if(!nativeRateStart)nativeRateStart=now;
  if(now-nativeRateStart>=1000){$('frameRate').textContent='Taxa recebida: '+(nativeFrames*1000/(now-nativeRateStart)).toFixed(1)+' quadros/s';nativeFrames=0;nativeRateStart=now;}
- nativeScreenImage.onload=function(){if(tracking)trackingFrame(performance.now());};
+ const tRecv=now;
+ nativeScreenImage.onload=function(){if(tracking)trackingFrame(tRecv);};
  nativeScreenImage.src=dataUrl;
 };
 window.onNativeCaptureError=function(message){$('captureStatus').textContent=message;$('captureDot').className='dot red';};
@@ -640,6 +724,7 @@ window.onNativeCaptureStopped=function(){
  $('captureStatus').textContent='Captura encerrada';$('captureDot').className='dot';
  $('resolution').textContent='—';$('frameCount').textContent='0';$('frameRate').textContent='Taxa de quadros: —';
 };
+renderHistory();
 clearPossibleRegion();
 updateCaptureSupport();
 </script>
