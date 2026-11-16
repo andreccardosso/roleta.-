@@ -570,7 +570,7 @@ Engine.prototype._end=function(t){
   const n=sp.T.length;
   if(n<20||sp.T[n-1]-sp.T[0]<2)return null;
   const phiAct=sp.B[n-1]-sp.Z[n-1];
-  const e={t:Date.now(),valid:false,kPred:null,w:null,kReal:null,hit:null,res:null,dir:sp.dir,phiDrop:null,phiAct:phiAct};
+  const e={t:Date.now(),valid:false,kPred:null,w:null,kReal:null,hit:null,res:null,dir:sp.dir,phiDrop:null,phiAct:phiAct,calibration:opticalCalibration?'optical':'geometric'};
   if(sp.dropped&&sp.R[n-1]<0.9){e.valid=true;e.kReal=pocketOf(phiAct,this.mirror);}
   if(sp.pred){e.kPred=sp.pred.k;e.w=sp.pred.w;e.phiDrop=sp.pred.phiDrop;
     if(e.valid){e.hit=cdist(e.kReal,e.kPred)<=e.w;e.res=sp.dir*wrapPi(phiAct-sp.pred.phiDrop);}}
@@ -629,6 +629,8 @@ let trackingCtx = trackingCanvas.getContext('2d', {willReadFrequently:true});
 let trackingFrameBusy = false;
 let eng = null, engKey = '', lastT = -1, lastPaint = 0;
 let trackThr = 185, trackMirror = false;
+let opticalCalibration = null;
+try{opticalCalibration=JSON.parse(localStorage.getItem('roulette-optical-calibration-v1')||'null');if(opticalCalibration&&[-1,1].includes(opticalCalibration.direction)){trackMirror=opticalCalibration.direction<0;$('mirror').checked=trackMirror;}}catch(e){opticalCalibration=null;}
 let lastSpin = null, lastZone = null, regionKey = '';
 
 const HIST_KEY='roulette-spin-history-v2';
@@ -679,7 +681,7 @@ function renderLastResult(e){
  if(!e){num.textContent='—';num.className='lastResultNumber';detail.textContent='Aguardando a conclusão de um giro';return;}
  if(!e.valid||e.kReal===null||e.kReal===undefined){num.textContent='?';num.className='lastResultNumber';detail.textContent='Giro salvo, mas sem estimativa confiável do número';return;}
  const n=WHEEL[e.kReal];num.textContent=String(n);num.className='lastResultNumber '+pocketClass(n);
- detail.textContent='Estimativa automática pelo movimento · '+(e.kPred!==null?(e.hit?'dentro da zona estimada':'fora da zona estimada'):'sem zona de comparação')+'. Confira com o resultado real.';
+ detail.textContent=(e.calibration==='optical'?'Movimento + orientação calibrada pelos números da foto':'Estimativa geométrica pelo movimento')+' · '+(e.kPred!==null?(e.hit?'dentro da zona estimada':'fora da zona estimada'):'sem zona de comparação')+'. Confira com o resultado real.';
 }
 function renderHistory(){
  const v=hist.spins.filter(e=>e.valid&&e.kPred!==null),hits=v.filter(e=>e.hit).length;
@@ -694,7 +696,7 @@ function onSpinEnd(e){
  lastSpin=e;
  lastZone=e.kPred!==null?{k:e.kPred,w:e.w}:null;
  saveHist();renderHistory();
- $('historyStatus').textContent=(e.valid?'Giro registrado: caiu no '+WHEEL[e.kReal]+' (leitura automática). ':'Giro registrado, mas não consegui ler onde caiu. ')+'Se estiver errado, digite o número e toque em Registrar resultado. '+qualityText()+'.';
+ $('historyStatus').textContent=(e.valid?'Giro registrado: número estimado '+WHEEL[e.kReal]+(e.calibration==='optical'?' com orientação calibrada pela foto. ':' pelo movimento. '):'Giro registrado, mas não consegui estimar o número com confiança. ')+'Confira com o resultado real; se estiver errado, corrija no campo abaixo. '+qualityText()+'.';
 }
 function recordActual(){
  const actual=Number($('actualNumber').value);
@@ -864,6 +866,34 @@ $('galleryImageInput').addEventListener('change',function(){
  $('galleryOcrResult').style.display='none';
  $('galleryOcrStatus').textContent='Imagem carregada: '+file.name+'. Toque em Reconhecer números da foto.';
 });
+function calibrateWheelFromOcr(words,imageWidth,imageHeight){
+ if(!wheelArea)return{ok:false,message:'Marque primeiro a área da roleta no vídeo ao vivo. A foto precisa mostrar a mesma roleta e o mesmo enquadramento.'};
+ if(!imageWidth||!imageHeight)return{ok:false,message:'Não consegui ler as dimensões da foto.'};
+ const found=new Map();
+ for(const w of words){
+  const txt=String(w.text||'').trim().replace(/[^0-9]/g,'');
+  if(!/^\\d{1,2}$/.test(txt))continue;
+  const n=Number(txt);if(n<0||n>36)continue;
+  const conf=Number(w.confidence||0);if(conf<35)continue;
+  const b=w.bbox;if(!b||![b.x0,b.x1,b.y0,b.y1].every(Number.isFinite))continue;
+  const x=((b.x0+b.x1)/2)/imageWidth,y=((b.y0+b.y1)/2)/imageHeight;
+  const u=(x-wheelArea.cx)/wheelArea.rx,v=(y-wheelArea.cy)/wheelArea.ry,rho=Math.hypot(u,v);
+  if(rho<0.48||rho>1.12)continue;
+  const angle=Math.atan2(v,u),old=found.get(n);
+  if(!old||conf>old.conf)found.set(n,{n,index:WHEEL.indexOf(n),angle,conf});
+ }
+ const obs=Array.from(found.values()).filter(o=>o.index>=0);
+ if(obs.length<8)return{ok:false,message:'Reconheci '+obs.length+' números úteis ao redor da roda. Preciso de pelo menos 8 bem legíveis. Use uma foto nítida, com a roleta inteira e o mesmo enquadramento do vídeo.'};
+ let best=null;
+ for(const direction of [1,-1]){
+  let sx=0,sy=0;
+  for(const o of obs){const a=o.angle-direction*o.index*STEP;sx+=Math.cos(a);sy+=Math.sin(a);}
+  const offset=Math.atan2(sy,sx),score=Math.hypot(sx,sy)/obs.length;
+  if(!best||score>best.score)best={direction,offset,score};
+ }
+ if(!best||best.score<0.62)return{ok:false,message:'Os números foram lidos, mas a ordem não ficou confiável ('+Math.round((best?best.score:0)*100)+'%). Tire outra foto mais nítida e sem inclinação excessiva.'};
+ return{ok:true,count:obs.length,score:best.score,data:{direction:best.direction,offset:best.offset,score:best.score,count:obs.length,updatedAt:Date.now()}};
+}
 async function loadGalleryOcr(){
  if(galleryOcrWorker)return galleryOcrWorker;
  if(!window.Tesseract)await new Promise((resolve,reject)=>{
@@ -885,9 +915,17 @@ $('runGalleryOcr').addEventListener('click',async()=>{
   const result=await worker.recognize(galleryImageFile);
   const words=(result.data.words||[]).filter(w=>/\d/.test(w.text)).map(w=>w.text.trim());
   const confidence=result.data.confidence||0;
+  const calibration=calibrateWheelFromOcr(result.data.words||[], $('galleryImagePreview').naturalWidth, $('galleryImagePreview').naturalHeight);
   $('galleryOcrResult').style.display='block';
   $('galleryOcrResult').textContent=words.length?'Números reconhecidos na imagem:\n'+words.join(' · ')+'\n\nConfiança geral do OCR: '+confidence.toFixed(1)+'%.':'Não consegui reconhecer números com segurança nesta foto. Tente uma imagem mais nítida e aproximada.';
-  $('galleryOcrStatus').textContent='Leitura da foto concluída. Esta etapa verifica o reconhecimento dos dígitos; ainda não associa automaticamente cada casa à posição da bolinha.';
+  if(calibration.ok){
+   opticalCalibration=calibration.data;trackMirror=opticalCalibration.direction<0;$('mirror').checked=trackMirror;
+   try{localStorage.setItem('roulette-optical-calibration-v1',JSON.stringify(opticalCalibration));}catch(e){}
+   if(tracking)stopTracking();
+   $('galleryOcrStatus').textContent='Calibração aplicada: '+calibration.count+' casas reconhecidas · orientação '+(trackMirror?'anti-horária':'horária')+' · confiança geométrica '+Math.round(calibration.score*100)+'%. Agora inicie o rastreio novamente.';
+  }else{
+   $('galleryOcrStatus').textContent=calibration.message;
+  }
  }catch(err){$('galleryOcrStatus').textContent=err&&err.message?err.message:'Falha ao processar a imagem.';}
  finally{btn.disabled=false;}
 });
