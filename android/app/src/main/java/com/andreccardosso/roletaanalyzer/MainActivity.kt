@@ -56,6 +56,14 @@ class MainActivity : Activity() {
     private var screenDensity = 0
     private var browserLeft = 0
     private var browserTop = 0
+    private val projectionCallback = object : MediaProjection.Callback() {
+        override fun onStop() {
+            runOnUiThread {
+                if (mediaProjection != null) stopScreenCapture()
+                captureStatus.text = "ANÁLISE: compartilhamento encerrado"
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -435,6 +443,7 @@ class MainActivity : Activity() {
             }
         }, captureHandler)
 
+        mediaProjection?.registerCallback(projectionCallback, captureHandler)
         virtualDisplay = mediaProjection?.createVirtualDisplay(
             "YAnalyzerDisplay",
             screenWidth,
