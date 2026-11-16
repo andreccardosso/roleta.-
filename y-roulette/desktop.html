@@ -20,7 +20,7 @@ button:hover{border-color:var(--gold)}button:focus-visible{outline:2px solid var
 .num{padding:8px 2px;min-height:37px;border-radius:7px;font-size:14px}.num.green{background:var(--green)}.num.red{background:var(--red)}.num.black{background:#26323d}.num.active{outline:3px solid var(--gold);outline-offset:1px;color:#fff}
 .actions{display:flex;gap:7px;margin-top:9px}.actions button{flex:1}.primary{background:var(--gold);color:#211a0c;border-color:var(--gold)}
 .section{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}.section h3{font-size:12px;margin:0 0 8px;color:#f0d18b}
-#strategy{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.cell{background:#0c141c;border:1px solid var(--line);border-radius:8px;text-align:center;padding:7px 3px}.cell small{display:block;color:var(--muted);font-size:10px}.cell b{font-size:18px}
+#strategy{display:block;background:#0c141c;border:1px solid var(--line);border-radius:10px;padding:8px}.y-diagram{display:block;width:100%;height:190px}.y-diagram line{stroke:#e4b85d;stroke-width:4;stroke-linecap:round}.y-diagram .axis{stroke:#9aabb8;stroke-width:2;stroke-dasharray:4 5}.y-diagram .center{stroke:#fff;stroke-width:4;stroke-linecap:round}.strategy-note{font-size:10px;color:var(--muted);text-align:center;margin:4px 0 0}
 #history{font-size:12px;color:var(--muted);line-height:1.7;max-height:70px;overflow:auto;overflow-wrap:anywhere}
 #minimized{display:none;position:fixed;z-index:11;left:18px;top:18px}
 #panel.closed #content{display:none}#panel.closed{width:auto;min-height:0;resize:none}
@@ -37,21 +37,20 @@ button:hover{border-color:var(--gold)}button:focus-visible{outline:2px solid var
   <p id="chosen">Escolha um número de 0 a 36.</p>
   <div class="numbers" id="numbers" aria-label="Todos os números da roleta"></div>
   <div class="actions"><button class="primary" id="record">Registrar resultado</button><button id="clear">Limpar seleção</button></div>
-  <div class="section"><h3>ESTRATÉGIA · QUATRO Y</h3><div id="strategy"><div class="cell"><small>Base</small><b>—</b></div></div><p style="font-size:10px;color:var(--muted);margin:8px 0 0">A seleção de 1 a 36 calcula as oito pontas. O zero pode ser registrado como resultado, mas não é número-base.</p></div>
+  <div class="section"><h3>ESTRATÉGIA · DOIS Y CRUZADOS</h3><div id="strategy"><svg class="y-diagram" viewBox="0 0 300 190" role="img" aria-label="Dois Y fixos cruzados formando um X, com sinal de mais no centro"><line x1="150" y1="18" x2="150" y2="172"/><line x1="150" y1="95" x2="48" y2="18"/><line x1="150" y1="95" x2="252" y2="18"/><line x1="150" y1="95" x2="48" y2="172"/><line x1="150" y1="95" x2="252" y2="172"/><line class="axis" x1="24" y1="95" x2="276" y2="95"/><line class="center" x1="140" y1="95" x2="160" y2="95"/><line class="center" x1="150" y1="85" x2="150" y2="105"/><circle cx="150" cy="95" r="7" fill="#e4b85d" stroke="#0c141c" stroke-width="2"/></svg><p class="strategy-note">Dois Y fixos em sentidos opostos. O + marca o centro de cruzamento e a referência dos ângulos.</p></div><p style="font-size:10px;color:var(--muted);margin:8px 0 0">Desenho geométrico fixo. A distribuição dos números será ligada aos ângulos definidos, sem estimativas inventadas.</p></div>
   <div class="section"><h3>HISTÓRICO RECENTE</h3><div id="history">Ainda sem resultados.</div></div>
  </div>
 </section>
 <button id="minimized">Y Analyzer · Abrir painel</button>
 <script>
 const wheel=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
-const offsets=[0,5,9,14,19,23,28,32],labels=['+1','X1','+2','X2','+3','X3','+4','X4'];
 const reds=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
 let selected=null,history=JSON.parse(localStorage.getItem('ya-desktop-history')||'[]');
 const $=id=>document.getElementById(id);
 function color(n){return n===0?'green':reds.has(n)?'red':'black'}
 function drawNumbers(){const root=$('numbers');root.innerHTML='';for(let n=0;n<=36;n++){const b=document.createElement('button');b.className='num '+color(n)+(selected===n?' active':'');b.textContent=n;b.onclick=()=>selectNumber(n);root.appendChild(b)}}
 function selectNumber(n){selected=n;$('chosen').textContent='Selecionado: '+n+(n===0?' · zero não é base da estratégia':' · pode ser registrado e usado como base');drawNumbers();drawStrategy()}
-function drawStrategy(){const root=$('strategy');root.innerHTML='';if(selected===null||selected===0){root.innerHTML='<div class="cell" style="grid-column:1/-1"><small>Escolha uma base de 1 a 36</small><b>—</b></div>';return}const base=wheel.indexOf(selected);offsets.forEach((off,i)=>{const n=wheel[(base+off)%wheel.length],d=document.createElement('div');d.className='cell';d.innerHTML='<small>'+labels[i]+'</small><b>'+n+'</b>';root.appendChild(d)})}
+function drawStrategy(){/* O desenho dos dois Y é fixo e independente do número selecionado. */}
 function renderHistory(){if(!history.length){$('history').textContent='Ainda sem resultados.';return}$('history').textContent=history.slice(0,12).join(' · ')}
 function record(){if(selected===null){$('chosen').textContent='Selecione primeiro um número de 0 a 36.';return}history.unshift(selected);history=history.slice(0,100);localStorage.setItem('ya-desktop-history',JSON.stringify(history));$('lastNumber').textContent=selected;$('lastNumber').style.background=selected===0?'var(--green)':reds.has(selected)?'var(--red)':'#26323d';$('lastInfo').textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});renderHistory();$('chosen').textContent='Resultado '+selected+' registrado no histórico.'}
 $('record').onclick=record;$('clear').onclick=()=>{selected=null;$('chosen').textContent='Escolha um número de 0 a 36.';drawNumbers();drawStrategy()};
