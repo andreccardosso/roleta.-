@@ -322,7 +322,7 @@ let previousFrameData = null;
 let ballAnglePrevious = null, ballAngleUnwrapped = 0, ballOmega = null;
 let zeroAnglePrevious = null, zeroAngleUnwrapped = 0, wheelOmega = null, zeroAngleInitialized = false, lastBallTime = null;
 let ballLockCount=0,ballLockTravel=0,ballLockDirection=0,ballLocked=false;
-let ballMotionHistory = [];
+let ballMotionHistory = [], ballAngleSamples = [];
 let pendingPrediction = null;
 let trackingFrameBusy = false;
 const europeanWheel=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
@@ -520,14 +520,18 @@ function trackingFrame(now){
   if(ball){
    if(ballAnglePrevious!==null&&lastBallTime!==null&&now/1000>lastBallTime){
     const ballDt=now/1000-lastBallTime,d=wrapAngle(ball.angle-ballAnglePrevious);
-    ballAngleUnwrapped+=d;ballOmega=d/ballDt;
+    ballAngleUnwrapped+=d;
+    ballAngleSamples.push({t:now/1000,a:ballAngleUnwrapped});
+    ballAngleSamples=ballAngleSamples.filter(p=>p.t>now/1000-3);
+    const reference=ballAngleSamples.find(p=>now/1000-p.t>=0.40);
+    ballOmega=reference?(ballAngleUnwrapped-reference.a)/(now/1000-reference.t):d/ballDt;
     const sign=Math.sign(d);
     if(sign&&(!ballLockDirection||sign===ballLockDirection)){ballLockDirection=sign;ballLockCount++;ballLockTravel+=Math.abs(d);}
     else{ballLockDirection=sign;ballLockCount=1;ballLockTravel=Math.abs(d);ballLocked=false;}
     if(ballLockCount>=5&&ballLockTravel>1.2)ballLocked=true;
     ballMotionHistory.push({t:now/1000,v:Math.abs(ballOmega)});
     ballMotionHistory=ballMotionHistory.filter(p=>p.t>now/1000-3).slice(-100);
-   }else{ballAngleUnwrapped=ball.angle;ballMotionHistory=[];ballLockCount=1;ballLockTravel=0;ballLockDirection=0;ballLocked=false;}
+   }else{ballAngleUnwrapped=ball.angle;ballAngleSamples=[{t:now/1000,a:ballAngleUnwrapped}];ballMotionHistory=[];ballOmega=null;ballLockCount=1;ballLockTravel=0;ballLockDirection=0;ballLocked=false;}
    ballAnglePrevious=ball.angle;lastBallTime=now/1000;tracked.ball=ball;
    $('ballSpeed').textContent=ballOmega===null?'Calculando…':Math.abs(ballOmega).toFixed(2)+' rad/s';
    $('ballState').textContent='Pico angular detectado · '+ball.pixels.toFixed(0)+' pixels · rho '+ball.rho.toFixed(2);
@@ -569,7 +573,7 @@ function startTracking(){
  trackingCanvas.width=Math.max(1,Math.round(vw*scale));trackingCanvas.height=Math.max(1,Math.round(vh*scale));
  trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
  trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
- tracked.ball=null;previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;previousFrameData=null;ballAnglePrevious=null;ballAngleUnwrapped=0;ballOmega=null;lastBallTime=null;ballLockCount=0;ballLockTravel=0;ballLockDirection=0;ballLocked=false;zeroAnglePrevious=null;zeroAngleUnwrapped=0;wheelOmega=null;zeroAngleInitialized=false;ballMotionHistory=[];pendingPrediction=null;clearPossibleRegion();
+ tracked.ball=null;previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;previousFrameData=null;ballAnglePrevious=null;ballAngleUnwrapped=0;ballOmega=null;lastBallTime=null;ballAngleSamples=[];ballLockCount=0;ballLockTravel=0;ballLockDirection=0;ballLocked=false;zeroAnglePrevious=null;zeroAngleUnwrapped=0;wheelOmega=null;zeroAngleInitialized=false;ballMotionHistory=[];ballAngleSamples=[];pendingPrediction=null;clearPossibleRegion();
  tracking=true;$('startTracking').disabled=true;$('stopTracking').disabled=false;
  $('ballSpeed').textContent='Procurando…';$('wheelSpeed').textContent='Procurando…';
  $('ballState').textContent='Detectando a bolinha automaticamente…';$('wheelState').textContent='Detectando o zero verde automaticamente…';
