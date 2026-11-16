@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private lateinit var addressBar: EditText
     private lateinit var captureStatus: TextView
     private val handler = Handler(Looper.getMainLooper())
+    private val screenCaptureRequest = 7401
     private var capturing = false
     private var captureBusy = false
     private var lastFrameAt = 0L
