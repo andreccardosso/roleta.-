@@ -129,10 +129,6 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
   <button id="stopTracking" disabled>Parar rastreamento</button>
  </div>
  <div class="grid" style="margin-top:12px">
-  <div class="metric"><div class="name">Ajuste oval · inclinação</div><input id="ellipseTilt" type="range" min="-25" max="25" value="0" step="1"><div class="detail">Incline a área para alinhar a roleta.</div></div>
-  <div class="metric"><div class="name">Ajuste oval · altura</div><input id="ellipseHeight" type="range" min="65" max="140" value="100" step="1"><div class="detail">Alongue ou comprima o círculo na vertical.</div></div>
- </div>
- <div class="grid" style="margin-top:12px">
   <div class="metric"><div class="name">Centro da mesa</div><div class="detail" id="centerMark">Não marcado</div></div>
   <div class="metric"><div class="name">Posição inicial da bola</div><div class="detail" id="ballMark">Não marcada</div></div>
   <div class="metric"><div class="name">Referência da roda</div><div class="detail" id="wheelMark">Não marcada</div></div>
@@ -421,35 +417,6 @@ function matchPatch(data,w,h,template,previous){
  return {x:bestX,y:bestY,confidence:best};
 }
 function trackingStatus(text){$('markStatus').textContent=text;}
-let ellipseTilt=0,ellipseHeight=1;
-$('ellipseTilt').addEventListener('input',e=>ellipseTilt=Number(e.target.value)*Math.PI/180);
-$('ellipseHeight').addEventListener('input',e=>ellipseHeight=Number(e.target.value)/100);
-function detectColorPoint(data,w,h,area,kind,previous){
- if(!area)return null;
- const cx=area.cx*w,cy=area.cy*h,rx=Math.max(8,area.rx*w),ry=Math.max(8,area.ry*h)*ellipseHeight;
- const cos=Math.cos(ellipseTilt),sin=Math.sin(ellipseTilt);
- let sx=0,sy=0,count=0,best=null,bestScore=0;
- const step=2;
- for(let y=Math.max(1,Math.floor(cy-ry));y<Math.min(h-1,cy+ry);y+=step){
-  for(let x=Math.max(1,Math.floor(cx-rx));x<Math.min(w-1,cx+rx);x+=step){
-   const dx=x-cx,dy=y-cy;
-   const nx=(dx*cos+dy*sin)/rx,ny=(-dx*sin+dy*cos)/ry,r=Math.hypot(nx,ny);
-   if(r<0.42||r>1.08)continue;
-   const i=(y*w+x)*4,R=data[i],G=data[i+1],B=data[i+2];
-   let ok=false;
-   if(kind==='green')ok=G>65&&G>R*1.22&&G>B*1.12;
-   else {const max=Math.max(R,G,B),min=Math.min(R,G,B);ok=R>185&&G>185&&B>185&&(max-min)<38;}
-   if(!ok)continue;
-   if(previous){
-    const d=Math.hypot(x-previous.x,y-previous.y);
-    const score=1/(1+d);
-    if(score>bestScore){bestScore=score;best={x,y};}
-   }else{sx+=x;sy+=y;count++;}
-  }
- }
- if(previous)return best;
- return count>5?{x:sx/count,y:sy/count,count}:null;
-}
 function stopTracking(){
  tracking=false;
  if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(-1,-1);
@@ -473,28 +440,6 @@ function trackingFrame(now){
   trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
   const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
   const dt=previousTrackTime===null?0:(now-previousTrackTime)/1000;
-  if(wheelArea){
-   const green=detectColorPoint(frame.data,trackingCanvas.width,trackingCanvas.height,wheelArea,'green',tracked.green);
-   const ball=detectColorPoint(frame.data,trackingCanvas.width,trackingCanvas.height,wheelArea,'ball',tracked.ball);
-   if(green){
-    tracked.green=green;
-    $('wheelState').textContent='Setor verde localizado · possível zero';
-    $('wheelSpeed').textContent='Zero detectado';
-   }else{
-    $('wheelState').textContent='Procurando setor verde (zero)…';
-    $('wheelSpeed').textContent='Aguardando zero';
-   }
-   if(ball){
-    if(tracked.ball&&dt>0)ballPixelSpeed=Math.hypot(ball.x-tracked.ball.x,ball.y-tracked.ball.y)/dt;
-    tracked.ball=ball;
-    if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(ball.x/trackingCanvas.width,ball.y/trackingCanvas.height);
-    $('ballState').textContent='Bolinha detectada automaticamente';
-    $('ballSpeed').textContent=ballPixelSpeed===null?'Detectada · calculando':(ballPixelSpeed/scale).toFixed(0)+' px/s';
-   }else{
-    $('ballState').textContent='Procurando a bolinha clara na borda da roleta…';
-    $('ballSpeed').textContent='Procurando…';
-   }
-  }
   if(templates.ball&&tracked.ball){
    const m=matchPatch(frame.data,trackingCanvas.width,trackingCanvas.height,templates.ball,tracked.ball);
    if(m&&m.confidence>=0.72){
@@ -538,25 +483,24 @@ function trackingFrame(now){
 function startTracking(){
  const source=activeSource();
  if(!captureStream||(!nativeCaptureActive&&screenVideo.readyState<2)||(nativeCaptureActive&&(!source.complete||!source.naturalWidth))){trackingStatus('Primeiro capture a tela com o vídeo da roleta.');return;}
- if(!wheelArea){trackingStatus('Primeiro desenhe e ajuste o círculo da roleta.');return;}
+ if(!marks.center||!marks.ball||!marks.wheel){trackingStatus('Marque o centro, a bola e uma referência da roda antes de iniciar.');return;}
  const vw=sourceWidth(),vh=sourceHeight();
  const scale=Math.min(1,720/vw);
  trackingCanvas.width=Math.max(1,Math.round(vw*scale));
  trackingCanvas.height=Math.max(1,Math.round(vh*scale));
  trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
  const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
- templates.ball=null;templates.wheel=null;
- tracked.ball=null;tracked.wheel=null;tracked.green=null;
+ templates.ball=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,marks.ball);
+ templates.wheel=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,marks.wheel);
+ if(!templates.ball||!templates.wheel){trackingStatus('As marcações precisam ficar afastadas das bordas do vídeo.');return;}
+ tracked.ball={x:templates.ball.x,y:templates.ball.y};
+ tracked.wheel={x:templates.wheel.x,y:templates.wheel.y};
  previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;
  tracking=true;$('startTracking').disabled=true;$('stopTracking').disabled=false;
  $('ballSpeed').textContent='Calculando…';$('wheelSpeed').textContent='Calculando…';
  $('ballState').textContent='Procurando a referência da bola…';$('wheelState').textContent='Procurando a referência da roda…';
- if(nativeCaptureActive){
-  trackingStatus('Rastreio iniciado: procurando automaticamente o zero verde e a bolinha.');
-  if(nativeScreenImage.complete&&nativeScreenImage.naturalWidth)trackingFrame(performance.now());
- }else if(typeof screenVideo.requestVideoFrameCallback==='function'){
-  trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
- }else{stopTracking();trackingStatus('Este navegador não oferece processamento de quadros necessário ao rastreamento.');}
+ if(typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
+ else{stopTracking();trackingStatus('Este navegador não oferece processamento de quadros necessário ao rastreamento.');}
 }
 $('startTracking').addEventListener('click',startTracking);
 $('stopTracking').addEventListener('click',stopTracking);
