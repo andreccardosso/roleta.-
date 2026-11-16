@@ -61,7 +61,7 @@ class MainActivity : Activity() {
             setHintTextColor(0xFF9AABB8.toInt())
             hint = "Endereço do site"
             setPadding(12, 4, 12, 4)
-            setText("https://55vv07.com/main/promo?pid=2686211963&fromPage=AGENCY_ONE&_ts===gMyUCO5kTOxgjMyEDO4cTMyITJ")
+            setText("")
         }
         val goButton = Button(this).apply {
             text = "IR"
