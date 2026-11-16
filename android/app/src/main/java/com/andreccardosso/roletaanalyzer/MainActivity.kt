@@ -6,6 +6,8 @@ import android.content.Intent
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Base64
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
@@ -27,6 +29,8 @@ class MainActivity : Activity() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var lastFrameAt = 0L
+    private var imageThread: HandlerThread? = null
+    private var imageHandler: Handler? = null
     private val frameBusy = AtomicBoolean(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,6 +85,8 @@ class MainActivity : Activity() {
             val density = metrics.densityDpi
 
             imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+            imageThread = HandlerThread("RoletaFrameReader").also { it.start() }
+            imageHandler = Handler(imageThread!!.looper)
             imageReader?.setOnImageAvailableListener({ reader ->
                 val now = System.currentTimeMillis()
                 if (now - lastFrameAt < 180 || !frameBusy.compareAndSet(false, true)) {
@@ -117,7 +123,7 @@ class MainActivity : Activity() {
                     image.close()
                     frameBusy.set(false)
                 }
-            }, null)
+            }, imageHandler)
 
             virtualDisplay = projection?.createVirtualDisplay(
                 "RoletaScreenCapture", width, height, density,
@@ -141,6 +147,9 @@ class MainActivity : Activity() {
         virtualDisplay = null
         imageReader?.close()
         imageReader = null
+        imageThread?.quitSafely()
+        imageThread = null
+        imageHandler = null
         projection?.stop()
         projection = null
         webView.evaluateJavascript("window.onNativeCaptureStopped && window.onNativeCaptureStopped()", null)
