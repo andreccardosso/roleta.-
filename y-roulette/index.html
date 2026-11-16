@@ -17,7 +17,7 @@ button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid 
 button.primary{background:var(--accent);color:#211a0c;border:0}button:disabled{opacity:.45;cursor:not-allowed}
 video{display:block;width:100%;max-height:520px;object-fit:contain;background:#05080b;border-radius:12px}
 .videoHint,.hint{font-size:12px;line-height:1.5;color:var(--muted)}.videoHint{margin-top:9px}
-.videoWrap{position:relative}.wheelMarkLayer{position:absolute;inset:0;width:100%;height:100%;display:none;touch-action:none;z-index:5;pointer-events:none}.wheelMarkLayer.active{display:block;pointer-events:auto;cursor:crosshair}.wheelMarkLayer:not(.active){display:block;pointer-events:none}
+.wheelNudge{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px}.wheelNudge button{min-width:38px;min-height:36px;padding:4px 10px;font-size:19px;line-height:1}.videoWrap{position:relative}.wheelMarkLayer{position:absolute;inset:0;width:100%;height:100%;display:none;touch-action:none;z-index:5;pointer-events:none}.wheelMarkLayer.active{display:block;pointer-events:auto;cursor:crosshair}.wheelMarkLayer:not(.active){display:block;pointer-events:none}
 .status{display:inline-flex;align-items:center;gap:7px;border-radius:99px;padding:7px 11px;background:var(--panel2);font-size:13px}
 .dot{width:10px;height:10px;border-radius:50%;background:#788896}.dot.green{background:var(--green);box-shadow:0 0 12px #20b87988}.dot.red{background:var(--red)}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -116,6 +116,14 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <h2>Marcar a área da roleta</h2>
  <p class="hint">Toque no botão e contorne a roleta na tela grande. Depois use dois dedos como pinça para ajustar o tamanho e arraste com um dedo para centralizar. O zoom da página fica bloqueado.</p>
  <div class="row"><button class="primary" id="markWheelArea">Desenhar círculo da roleta</button><span class="status" id="wheelAreaStatus">Área ainda não marcada</span></div>
+  <div class="wheelNudge" aria-label="Mover marcação da roleta">
+   <span class="hint">Ajustar posição:</span>
+   <button type="button" id="wheelUp" title="Mover para cima" aria-label="Mover para cima">↑</button>
+   <button type="button" id="wheelDown" title="Mover para baixo" aria-label="Mover para baixo">↓</button>
+   <button type="button" id="wheelLeft" title="Mover para esquerda" aria-label="Mover para esquerda">←</button>
+   <button type="button" id="wheelRight" title="Mover para direita" aria-label="Mover para direita">→</button>
+   <span class="hint">Cada toque move 0,5% da imagem.</span>
+  </div>
   <div class="row" style="margin-top:10px"><button class="primary" id="startTracking">Iniciar rastreio automático</button><button id="stopTracking" disabled>Parar rastreio</button></div>
   <p class="hint">Marque a área oval da roleta (a borda do círculo deve ficar no aro logo depois dos números) e toque em iniciar. O analisador localiza o zero verde e a bolinha sem marcações manuais.</p>
   <details class="setup">
@@ -231,6 +239,15 @@ function setWheelArea(a){
  $('wheelAreaStatus').textContent='Área marcada · centro '+(a.cx*100).toFixed(1)+'% / '+(a.cy*100).toFixed(1)+'%';
  drawWheelMark();
 }
+function nudgeWheelArea(dx,dy){
+ if(!wheelArea){$('wheelAreaStatus').textContent='Marque a roleta primeiro para depois ajustar a posição.';return;}
+ const a={...wheelArea,cx:Math.max(wheelArea.rx,Math.min(1-wheelArea.rx,wheelArea.cx+dx)),cy:Math.max(wheelArea.ry,Math.min(1-wheelArea.ry,wheelArea.cy+dy))};
+ setWheelArea(a);
+}
+$('wheelUp').addEventListener('click',()=>nudgeWheelArea(0,-0.005));
+$('wheelDown').addEventListener('click',()=>nudgeWheelArea(0,0.005));
+$('wheelLeft').addEventListener('click',()=>nudgeWheelArea(-0.005,0));
+$('wheelRight').addEventListener('click',()=>nudgeWheelArea(0.005,0));
 $('markWheelArea').addEventListener('click',()=>{
  if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){
   window.AndroidCapture.setCircleMark();
