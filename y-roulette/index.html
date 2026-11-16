@@ -17,6 +17,7 @@ button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid 
 button.primary{background:var(--accent);color:#211a0c;border:0}button:disabled{opacity:.45;cursor:not-allowed}
 video{display:block;width:100%;max-height:520px;object-fit:contain;background:#05080b;border-radius:12px}
 .videoHint,.hint{font-size:12px;line-height:1.5;color:var(--muted)}.videoHint{margin-top:9px}
+.videoWrap{position:relative}.wheelMarkLayer{position:absolute;inset:0;width:100%;height:100%;display:none;touch-action:none;z-index:5;pointer-events:none}.wheelMarkLayer.active{display:block;pointer-events:auto;cursor:crosshair}.wheelMarkLayer:not(.active){display:block;pointer-events:none}
 .status{display:inline-flex;align-items:center;gap:7px;border-radius:99px;padding:7px 11px;background:var(--panel2);font-size:13px}
 .dot{width:10px;height:10px;border-radius:50%;background:#788896}.dot.green{background:var(--green);box-shadow:0 0 12px #20b87988}.dot.red{background:var(--red)}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -92,7 +93,7 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 <section class="panel">
  <h2>Vídeo da roleta</h2>
  <p class="hint">Compartilhe a tela que contém o vídeo da roleta. Mantenha a imagem inteira visível e, se possível, use um vídeo com boa resolução e poucos cortes.</p>
- <div class="videoWrap"><video id="screenVideo" autoplay muted playsinline></video><img id="nativeScreenImage" alt="Captura nativa da tela" style="display:none;width:100%;max-height:520px;object-fit:contain;background:#05080b;border-radius:12px"></div>
+ <div class="videoWrap"><video id="screenVideo" autoplay muted playsinline></video><img id="nativeScreenImage" alt="Captura nativa da tela" style="display:none;width:100%;max-height:520px;object-fit:contain;background:#05080b;border-radius:12px"><canvas id="wheelMarkLayer" class="wheelMarkLayer" aria-label="Marque a roleta arrastando o mouse"></canvas></div>
  <div class="row" style="margin-top:12px">
   <button class="primary" id="startCapture">Compartilhar tela</button>
   <button id="stopCapture" disabled>Encerrar captura</button>
@@ -198,12 +199,81 @@ function sourceWidth(){return nativeCaptureActive ? nativeScreenImage.naturalWid
 function sourceHeight(){return nativeCaptureActive ? nativeScreenImage.naturalHeight : screenVideo.videoHeight;}
 
 let wheelArea = null;
+const wheelMarkLayer = $('wheelMarkLayer');
+const wheelMarkCtx = wheelMarkLayer.getContext('2d');
+let wheelMarking = false, wheelDrag = null;
+function displayedVideoRect(){
+ const r=screenVideo.getBoundingClientRect(), vw=sourceWidth(), vh=sourceHeight();
+ if(!vw||!vh||!r.width||!r.height)return null;
+ const scale=Math.min(r.width/vw,r.height/vh), w=vw*scale, h=vh*scale;
+ return {left:(r.width-w)/2,top:(r.height-h)/2,width:w,height:h,box:r,vw,vh};
+}
+function resizeWheelLayer(){
+ const r=screenVideo.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+ wheelMarkLayer.width=Math.max(1,Math.round(r.width*dpr));
+ wheelMarkLayer.height=Math.max(1,Math.round(r.height*dpr));
+ wheelMarkCtx.setTransform(dpr,0,0,dpr,0,0);
+ drawWheelMark();
+}
+function drawWheelMark(preview){
+ const r=displayedVideoRect();if(!r)return;
+ const dpr=window.devicePixelRatio||1;
+ wheelMarkCtx.clearRect(0,0,wheelMarkLayer.width/dpr,wheelMarkLayer.height/dpr);
+ const a=preview||wheelArea;if(!a)return;
+ wheelMarkCtx.save();wheelMarkCtx.strokeStyle='#fff';wheelMarkCtx.lineWidth=2;wheelMarkCtx.setLineDash([8,5]);
+ wheelMarkCtx.beginPath();
+ wheelMarkCtx.ellipse(r.left+a.cx*r.width,r.top+a.cy*r.height,Math.max(2,a.rx*r.width),Math.max(2,a.ry*r.height),Number(a.rotation||0),0,Math.PI*2);
+ wheelMarkCtx.stroke();wheelMarkCtx.restore();
+}
+function setWheelArea(a){
+ wheelArea=a;
+ try{localStorage.setItem('roulette-wheel-area-v1',JSON.stringify(wheelArea));}catch(e){}
+ $('wheelAreaStatus').textContent='Área marcada · centro '+(a.cx*100).toFixed(1)+'% / '+(a.cy*100).toFixed(1)+'%';
+ drawWheelMark();
+}
 $('markWheelArea').addEventListener('click',()=>{
  if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){
   window.AndroidCapture.setCircleMark();
   $('wheelAreaStatus').textContent='Contorne a roleta; ajuste com pinça e arraste para centralizar.';
- }else $('wheelAreaStatus').textContent='A marcação oval está disponível no APK Android.';
+  return;
+ }
+ if(!captureStream||!sourceWidth()||!sourceHeight()){
+  $('wheelAreaStatus').textContent='Primeiro clique em Compartilhar tela e escolha a janela da roleta.';
+  return;
+ }
+ wheelMarking=true;wheelDrag=null;resizeWheelLayer();wheelMarkLayer.classList.add('active');
+ $('wheelAreaStatus').textContent='No vídeo acima, clique e segure o botão esquerdo do mouse; arraste para contornar a roleta e solte.';
 });
+function wheelPointerPosition(e){
+ const r=displayedVideoRect();if(!r)return null;
+ const x=e.clientX-r.box.left-r.left,y=e.clientY-r.box.top-r.top;
+ if(x<0||y<0||x>r.width||y>r.height)return null;
+ return {x:x/r.width,y:y/r.height};
+}
+wheelMarkLayer.addEventListener('pointerdown',e=>{
+ if(!wheelMarking)return;
+ const p=wheelPointerPosition(e);if(!p)return;
+ wheelDrag={start:p,end:p};wheelMarkLayer.setPointerCapture(e.pointerId);drawWheelMark({cx:p.x,cy:p.y,rx:0,ry:0});
+ e.preventDefault();
+});
+wheelMarkLayer.addEventListener('pointermove',e=>{
+ if(!wheelMarking||!wheelDrag)return;
+ const p=wheelPointerPosition(e);if(!p)return;
+ wheelDrag.end=p;
+ const a={cx:(wheelDrag.start.x+p.x)/2,cy:(wheelDrag.start.y+p.y)/2,rx:Math.abs(p.x-wheelDrag.start.x)/2,ry:Math.abs(p.y-wheelDrag.start.y)/2,rotation:0};
+ drawWheelMark(a);
+});
+function finishWheelMark(e){
+ if(!wheelMarking||!wheelDrag)return;
+ const p=wheelPointerPosition(e)||wheelDrag.end;
+ const a={cx:(wheelDrag.start.x+p.x)/2,cy:(wheelDrag.start.y+p.y)/2,rx:Math.abs(p.x-wheelDrag.start.x)/2,ry:Math.abs(p.y-wheelDrag.start.y)/2,rotation:0};
+ wheelDrag=null;
+ if(a.rx<0.04||a.ry<0.04){$('wheelAreaStatus').textContent='Área muito pequena. Clique e arraste ao redor de toda a roleta.';drawWheelMark();return;}
+ setWheelArea(a);wheelMarking=false;wheelMarkLayer.classList.remove('active');
+}
+wheelMarkLayer.addEventListener('pointerup',finishWheelMark);
+wheelMarkLayer.addEventListener('pointercancel',()=>{wheelDrag=null;drawWheelMark();});
+window.addEventListener('resize',resizeWheelLayer);
 
 let captureStream = null;
 let frameCallbackId = null;
@@ -699,6 +769,9 @@ window.onBrowserCircle=function(cx,cy,rx,ry,rotation){
  try{localStorage.setItem('roulette-wheel-area-v1',JSON.stringify(wheelArea));}catch(e){}
 };
 try{const savedArea=JSON.parse(localStorage.getItem('roulette-wheel-area-v1')||'null');if(savedArea&&['cx','cy','rx','ry'].every(k=>Number.isFinite(savedArea[k]))){wheelArea=savedArea;if(!Number.isFinite(wheelArea.rotation))wheelArea.rotation=0;$('wheelAreaStatus').textContent='Círculo salvo · centro '+(wheelArea.cx*100).toFixed(1)+'% / '+(wheelArea.cy*100).toFixed(1)+'%';}}catch(e){}
+window.addEventListener('loadedmetadata',resizeWheelLayer);
+screenVideo.addEventListener('loadedmetadata',resizeWheelLayer);
+
 window.onNativeCaptureStarted=function(width,height){
  nativeCaptureActive=true;captureStream={native:true};
  screenVideo.pause();screenVideo.srcObject=null;screenVideo.style.display='none';nativeScreenImage.style.display='block';
