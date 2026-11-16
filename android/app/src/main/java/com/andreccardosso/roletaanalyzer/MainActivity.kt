@@ -125,20 +125,26 @@ class MainActivity : Activity() {
                 }
             }, imageHandler)
 
+            // Android 14 exige que o callback seja registrado antes de criar o VirtualDisplay.
+            projection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    runOnUiThread { stopProjection() }
+                }
+            }, Handler(mainLooper))
+
             virtualDisplay = projection?.createVirtualDisplay(
                 "RoletaScreenCapture", width, height, density,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader?.surface, null, null
             )
-            projection?.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() {
-                    runOnUiThread { stopProjection() }
-                }
-            }, null)
+            if (virtualDisplay == null) {
+                throw IllegalStateException("O Android não criou a tela virtual")
+            }
             webView.evaluateJavascript("window.onNativeCaptureStarted && window.onNativeCaptureStarted($width,$height)", null)
         } catch (error: Exception) {
+            val detail = (error.message ?: error.javaClass.simpleName).replace("'", "")
             stopProjection()
-            webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Não foi possível iniciar a captura nativa')", null)
+            webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Falha ao iniciar captura: $detail')", null)
         }
     }
 
