@@ -45,7 +45,7 @@ class MainActivity : Activity() {
     private var captureBusy = false
     private var lastFrameAt = 0L
     private val captureIntervalMs = 100L
-    private val screenCaptureRequest = 7401
+    // Captura do vídeo via MediaProjection, incluindo conteúdo renderizado por hardware.\n    private val screenCaptureRequest = 7401
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
