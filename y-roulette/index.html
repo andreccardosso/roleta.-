@@ -961,7 +961,7 @@ function calibrateWheelFromOcr(words,imageWidth,imageHeight){
  const found=new Map();
  for(const w of words){
   const txt=String(w.text||'').trim().replace(/[^0-9]/g,'');
-  if(!/^\\d{1,2}$/.test(txt))continue;
+  if(!/^\d{1,2}$/.test(txt))continue;
   const n=Number(txt);if(n<0||n>36)continue;
   const conf=Number(w.confidence||0);if(conf<35)continue;
   const b=w.bbox;if(!b||![b.x0,b.x1,b.y0,b.y1].every(Number.isFinite))continue;
