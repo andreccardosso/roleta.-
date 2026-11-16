@@ -160,6 +160,62 @@ class MainActivity : Activity() {
 
     inner class BrowserCaptureBridge {
         @JavascriptInterface
+        fun setCircleMark() {
+            runOnUiThread {
+                val script = """
+                    (function(){
+                      window.__yCircleDrawing = true;
+                      var overlay=document.getElementById('__yWheelCircle');
+                      if(!overlay){
+                        overlay=document.createElement('div');
+                        overlay.id='__yWheelCircle';
+                        overlay.style.cssText='position:fixed;display:none;border:3px solid #ffd34e;border-radius:50%;background:#ffd34e18;box-shadow:0 0 10px #ffd34e;transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;';
+                        document.documentElement.appendChild(overlay);
+                      }
+                      var start=null;
+                      function point(e){return {x:e.clientX,y:e.clientY};}
+                      function down(e){
+                        if(!window.__yCircleDrawing || e.button>0) return;
+                        e.preventDefault();e.stopPropagation();
+                        start=point(e);
+                        overlay.style.display='block';
+                        overlay.style.left=start.x+'px';overlay.style.top=start.y+'px';
+                        overlay.style.width='0px';overlay.style.height='0px';
+                      }
+                      function move(e){
+                        if(!start)return;
+                        e.preventDefault();e.stopPropagation();
+                        var dx=e.clientX-start.x,dy=e.clientY-start.y;
+                        overlay.style.left=(start.x+dx/2)+'px';
+                        overlay.style.top=(start.y+dy/2)+'px';
+                        overlay.style.width=(Math.abs(dx)*2)+'px';
+                        overlay.style.height=(Math.abs(dy)*2)+'px';
+                      }
+                      function up(e){
+                        if(!start)return;
+                        e.preventDefault();e.stopPropagation();
+                        var cx=(start.x+e.clientX)/2,cy=(start.y+e.clientY)/2;
+                        var rx=Math.abs(e.clientX-start.x)/2,ry=Math.abs(e.clientY-start.y)/2;
+                        start=null;window.__yCircleDrawing=false;
+                        if(rx<20 || ry<20){overlay.style.display='none';return;}
+                        if(window.YBrowser && window.YBrowser.onBrowserCircle){
+                          window.YBrowser.onBrowserCircle(cx/Math.max(1,innerWidth),cy/Math.max(1,innerHeight),rx/Math.max(1,innerWidth),ry/Math.max(1,innerHeight));
+                        }
+                      }
+                      if(!window.__yCircleHandlers){
+                        document.addEventListener('pointerdown',down,true);
+                        document.addEventListener('pointermove',move,true);
+                        document.addEventListener('pointerup',up,true);
+                        document.addEventListener('pointercancel',up,true);
+                        window.__yCircleHandlers=true;
+                      }
+                    })();
+                """.trimIndent()
+                browserView.evaluateJavascript(script, null)
+            }
+        }
+
+        @JavascriptInterface
         fun setMark(mode: String) {
             val safeMode = mode.filter { it.isLetter() }
             if (safeMode !in listOf("center", "ball", "wheel")) return
@@ -240,6 +296,19 @@ class MainActivity : Activity() {
     }
 
     inner class BrowserPageBridge {
+        @JavascriptInterface
+        fun onBrowserCircle(cx: Double, cy: Double, rx: Double, ry: Double) {
+            runOnUiThread {
+                val safeCx = cx.coerceIn(0.0, 1.0)
+                val safeCy = cy.coerceIn(0.0, 1.0)
+                val safeRx = rx.coerceIn(0.0, 0.5)
+                val safeRy = ry.coerceIn(0.0, 0.5)
+                analyzerView.evaluateJavascript(
+                    "window.onBrowserCircle && window.onBrowserCircle($safeCx,$safeCy,$safeRx,$safeRy)", null
+                )
+            }
+        }
+
         @JavascriptInterface
         fun onBrowserMark(mode: String, x: Double, y: Double) {
             runOnUiThread {
