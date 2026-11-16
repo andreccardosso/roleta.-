@@ -195,7 +195,7 @@ class MainActivity : Activity() {
                         if(!start)return;
                         e.preventDefault();e.stopPropagation();
                         var cx=(start.x+e.clientX)/2,cy=(start.y+e.clientY)/2;
-                        var rx=Math.abs(e.clientX-start.x)/2,ry=Math.abs(e.clientY-start.y)/2;
+                        var radius=Math.max(Math.abs(e.clientX-start.x),Math.abs(e.clientY-start.y))/2,rx=radius,ry=radius;
                         start=null;window.__yCircleDrawing=false;
                         if(rx<20 || ry<20){overlay.style.display='none';return;}
                         if(window.YBrowser && window.YBrowser.onBrowserCircle){
