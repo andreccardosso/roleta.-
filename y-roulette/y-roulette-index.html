@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101820">
+<title>Roleta · Análise de Movimento</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1117;--panel:#141e28;--panel2:#1b2935;--line:#2b3b49;--text:#edf3f7;--muted:#9aabb8;--accent:#e4b85d;--green:#20b879;--red:#dc514d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:980px;margin:auto;padding:18px 14px 40px}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+h1{font-size:23px;margin:0}h2{font-size:17px;margin:0 0 12px}.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.tag{border:1px solid #806b3b;color:#f3d58d;border-radius:99px;padding:5px 9px;font-size:11px;white-space:nowrap}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0}
+.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.muted{color:var(--muted)}
+button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;font-weight:650}
+button.primary{background:var(--accent);color:#211a0c;border:0}button:disabled{opacity:.45;cursor:not-allowed}
+video{display:block;width:100%;max-height:520px;object-fit:contain;background:#05080b;border-radius:12px}
+.videoHint,.hint{font-size:12px;line-height:1.5;color:var(--muted)}.videoHint{margin-top:9px}
+.status{display:inline-flex;align-items:center;gap:7px;border-radius:99px;padding:7px 11px;background:var(--panel2);font-size:13px}
+.dot{width:10px;height:10px;border-radius:50%;background:#788896}.dot.green{background:var(--green);box-shadow:0 0 12px #20b87988}.dot.red{background:var(--red)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.metric{background:#101923;border:1px solid var(--line);border-radius:12px;padding:13px;min-width:0}
+.metric .name{font-size:13px;color:var(--muted)}.metric .value{font-size:25px;font-weight:800;margin-top:5px}.metric .detail{font-size:12px;color:var(--muted);margin-top:4px}
+.foot{font-size:11px;color:var(--muted);line-height:1.5;margin-top:18px}
+@media(max-width:620px){
+ body{font-size:13px}
+ main{padding:9px 9px 16px}
+ header{margin-bottom:7px;align-items:center}
+ h1{font-size:18px}
+ h2{font-size:14px;margin-bottom:7px}
+ .sub{font-size:11px}
+ .panel{padding:9px;margin:7px 0;border-radius:12px}
+ .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+ .metric{padding:8px}
+ .metric .name{font-size:11px}
+ .metric .value{font-size:18px;margin-top:2px}
+ .metric .detail{font-size:10px;margin-top:2px}
+ video{max-height:25vh;min-height:120px} #nativeScreenImage{max-height:25vh!important;min-height:120px}
+ .videoHint{margin-top:5px}
+ button{font-size:12px;padding:8px 9px}
+ .hint{font-size:11px}
+ .numberBoard{grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
+ .pocket{min-height:30px;font-size:13px}
+ .tag{font-size:9px;padding:4px 7px}
+ .foot{margin-top:8px}
+}
+.numberBoard{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.pocket{display:flex;align-items:center;justify-content:center;min-height:36px;border-radius:7px;font-weight:800;border:1px solid #ffffff22}
+.pocket.green{background:#16875b}.pocket.red{background:#b93236}.pocket.black{background:#202a34}
+details.setup{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:12px;padding:5px 0}
+@media(min-width:621px){.numberBoard{grid-template-columns:repeat(12,minmax(0,1fr))}}
+.markActive{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}
+#wheelAreaPanel .status{max-width:100%;white-space:normal}
+.native-embedded #wheelAreaPanel{padding:6px;margin:4px 0}
+.native-embedded #wheelAreaPanel h2{font-size:12px;margin-bottom:4px}
+.native-embedded #wheelAreaPanel .hint{font-size:9px;margin:3px 0}
+.native-embedded #wheelAreaPanel button{font-size:10px;padding:6px 7px}
+
+/* Layout compacto quando o analisador roda na metade inferior do APK */
+.native-embedded main{padding:4px 6px 8px}
+.native-embedded header{margin:0 0 4px}
+.native-embedded header h1{font-size:15px}
+.native-embedded header .sub{font-size:10px}
+.native-embedded .tag{font-size:8px;padding:3px 6px}
+.native-embedded .panel{padding:6px;margin:4px 0;border-radius:9px}
+.native-embedded .panel h2{font-size:12px;margin-bottom:5px}
+.native-embedded .videoHint{display:none}
+.native-embedded video,.native-embedded #nativeScreenImage{max-height:9vh!important;min-height:58px!important}
+.native-embedded .row{gap:5px}
+.native-embedded button{font-size:10px;padding:6px 7px}
+.native-embedded .status{font-size:10px;padding:4px 7px}
+.native-embedded .grid{gap:5px}
+.native-embedded .metric{padding:6px}
+.native-embedded .metric .name{font-size:10px}
+.native-embedded .metric .value{font-size:16px}
+.native-embedded .metric .detail{font-size:9px}
+.native-embedded #numberReference,.native-embedded #videoCondition,.native-embedded .foot{display:none}
+.native-embedded details.setup{margin-top:4px;padding-top:4px}
+.native-embedded details.setup summary{font-size:10px;padding:3px 0}
+
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div><h1>Roleta · Análise de Movimento</h1><div class="sub">Análise visual da velocidade da bola e da rotação da mesa</div></div>
+ <span class="tag">ANÁLISE POR VÍDEO</span>
+</header>
+
+<section class="panel">
+ <h2>Vídeo da roleta</h2>
+ <p class="hint">Compartilhe a tela que contém o vídeo da roleta. Mantenha a imagem inteira visível e, se possível, use um vídeo com boa resolução e poucos cortes.</p>
+ <div class="videoWrap"><video id="screenVideo" autoplay muted playsinline></video><img id="nativeScreenImage" alt="Captura nativa da tela" style="display:none;width:100%;max-height:520px;object-fit:contain;background:#05080b;border-radius:12px"></div>
+ <div class="row" style="margin-top:12px">
+  <button class="primary" id="startCapture">Compartilhar tela</button>
+  <button id="stopCapture" disabled>Encerrar captura</button>
+  <span class="status"><span id="captureDot" class="dot"></span><span id="captureStatus">Aguardando vídeo</span></span>
+ </div>
+ <p class="videoHint" id="supportStatus">Verificando suporte à captura de tela…</p>
+</section>
+
+<section class="panel" id="videoCondition">
+ <h2>Condição do vídeo</h2>
+ <div class="grid">
+  <div class="metric"><div class="name">Resolução recebida</div><div class="value" id="resolution">—</div><div class="detail">Dimensões reais do vídeo compartilhado</div></div>
+  <div class="metric"><div class="name">Quadros recebidos</div><div class="value" id="frameCount">0</div><div class="detail" id="frameRate">Taxa de quadros: —</div></div>
+ </div>
+</section>
+
+
+
+<section class="panel" id="wheelAreaPanel">
+ <h2>Marcar a área da roleta</h2>
+ <p class="hint">Toque no botão e contorne a roleta na tela grande. Depois use dois dedos como pinça para ajustar o tamanho e arraste com um dedo para centralizar. O zoom da página fica bloqueado.</p>
+ <div class="row"><button class="primary" id="markWheelArea">Desenhar círculo da roleta</button><span class="status" id="wheelAreaStatus">Área ainda não marcada</span></div>
+  <div class="row" style="margin-top:10px"><button class="primary" id="startTracking">Iniciar rastreio automático</button><button id="stopTracking" disabled>Parar rastreio</button></div>
+  <p class="hint">Marque a área oval da roleta (a borda do círculo deve ficar no aro logo depois dos números) e toque em iniciar. O analisador localiza o zero verde e a bolinha sem marcações manuais.</p>
+  <details class="setup">
+   <summary>Ajustes do rastreio</summary>
+   <div class="row" style="margin-top:6px">
+    <label for="thr" style="flex:1;min-width:150px;font-size:12px;color:var(--muted)">Brilho da bolinha: <b id="thrv" style="color:var(--text)">185</b><input id="thr" type="range" min="120" max="245" value="185" style="display:block;width:100%"></label>
+    <label for="mirror" style="font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center"><input type="checkbox" id="mirror">Imagem espelhada</label>
+   </div>
+  </details>
+</section>
+
+
+
+
+
+<section class="panel" id="numberReference">
+ <h2>Roleta europeia · referência dos números</h2>
+ <div class="numberBoard" aria-label="Números da roleta europeia">
+  <div class="pocket green">0</div>
+  <div class="pocket red">32</div><div class="pocket black">15</div><div class="pocket red">19</div><div class="pocket black">4</div><div class="pocket red">21</div>
+  <div class="pocket black">2</div><div class="pocket red">25</div><div class="pocket black">17</div><div class="pocket red">34</div><div class="pocket black">6</div><div class="pocket red">27</div>
+  <div class="pocket black">13</div><div class="pocket red">36</div><div class="pocket black">11</div><div class="pocket red">30</div><div class="pocket black">8</div><div class="pocket red">23</div>
+  <div class="pocket black">10</div><div class="pocket red">5</div><div class="pocket black">24</div><div class="pocket red">16</div><div class="pocket black">33</div><div class="pocket red">1</div>
+  <div class="pocket black">20</div><div class="pocket red">14</div><div class="pocket black">31</div><div class="pocket red">9</div><div class="pocket black">22</div><div class="pocket red">18</div>
+  <div class="pocket black">29</div><div class="pocket red">7</div><div class="pocket black">28</div><div class="pocket red">12</div><div class="pocket black">35</div><div class="pocket red">3</div>
+  <div class="pocket black">26</div>
+ </div>
+ <p class="hint">Ordem física da roleta europeia. Esta grade é apenas uma referência visual; não indica resultado, setor provável ou previsão.</p>
+</section>
+
+<section class="panel" id="regionPanel">
+ <h2>Região experimental · zona provável</h2>
+ <div class="status" id="zeroTrackingStatus" style="margin-bottom:9px"><span class="dot red"></span><span>ZERO NÃO LOCALIZADO</span></div>
+ <div class="metric"><div class="name">Número central estimado</div><div class="value" id="regionCenter">Aguardando rastreio</div><div class="detail" id="regionStatus">Aguardando detecção simultânea do zero verde e da bolinha.</div></div>
+ <div class="numberBoard" id="predictedRegion" style="margin-top:10px"></div>
+ <p class="hint">Faixa exploratória: número central e vizinhos de cada lado na ordem europeia. A largura começa em 6 vizinhos e se ajusta (de 2 a 9) conforme o erro dos giros já medidos. Não é previsão garantida; depende da detecção visual e do alinhamento da roda.</p>
+</section>
+
+<section class="panel" id="historyPanel">
+ <h2>Histórico e validação</h2>
+ <div class="grid">
+  <div class="metric"><div class="name">Giros registrados</div><div class="value" id="historyCount">0</div></div>
+  <div class="metric"><div class="name">Acertos na zona</div><div class="value" id="historyRate">—</div><div class="detail" id="chanceRate">Acaso: —</div></div>
+ </div>
+ <div class="row" style="margin-top:10px;align-items:end">
+  <label style="flex:1;min-width:120px;font-size:12px;color:var(--muted)">Número que realmente caiu (corrige o último giro)
+   <input id="actualNumber" type="number" min="0" max="36" inputmode="numeric" placeholder="0 a 36" style="display:block;width:100%;margin-top:5px;padding:10px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);color:var(--text)">
+  </label>
+  <button class="primary" id="saveResult">Registrar resultado</button>
+  <button id="clearHistory">Zerar histórico</button>
+ </div>
+ <p class="hint" id="historyStatus">Cada giro é registrado sozinho quando a bolinha cai. Use o campo acima se a leitura automática errar o número.</p>
+ <div id="historyList" class="hint" style="max-height:130px;overflow:auto"></div>
+</section>
+<section class="panel">
+ <h2>Análise dos movimentos</h2>
+ <div class="grid">
+  <div class="metric">
+   <div class="name">Velocidade da bola</div>
+   <div class="value" id="ballSpeed">Aguardando análise</div>
+   <div class="detail" id="ballState">O rastreamento da posição da bola ainda não foi iniciado.</div>
+  </div>
+  <div class="metric">
+   <div class="name">Rotação da mesa</div>
+   <div class="value" id="wheelSpeed">Aguardando análise</div>
+   <div class="detail" id="wheelState">O rastreamento angular da roda ainda não foi iniciado.</div>
+  </div>
+ </div>
+ <p class="hint" style="margin-top:12px">O rastreio mede a volta da bolinha (em voltas por segundo) e a da roda (em RPM) pelo ângulo em relação ao centro marcado. Se a imagem mudar ou a referência desaparecer, a leitura será sinalizada como perdida.</p>
+</section>
+
+<p class="foot">O aplicativo trabalha exclusivamente com o vídeo compartilhado. A captura depende do suporte do navegador e da autorização concedida pelo usuário. O salto final da bolinha entre os separadores não é medido, por isso a zona é larga e o erro é registrado giro a giro. A taxa de acerto acima do acaso, em dezenas de giros, é o único sinal de que a estimativa vale algo. Muitas plataformas proíbem ferramentas de apoio ao jogo; confira as regras da sua.</p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const screenVideo = $('screenVideo');
+const nativeScreenImage = $('nativeScreenImage');
+let nativeCaptureActive = false;
+function activeSource(){return nativeCaptureActive ? nativeScreenImage : screenVideo;}
+function sourceWidth(){return nativeCaptureActive ? nativeScreenImage.naturalWidth : screenVideo.videoWidth;}
+function sourceHeight(){return nativeCaptureActive ? nativeScreenImage.naturalHeight : screenVideo.videoHeight;}
+
+let wheelArea = null;
+$('markWheelArea').addEventListener('click',()=>{
+ if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){
+  window.AndroidCapture.setCircleMark();
+  $('wheelAreaStatus').textContent='Contorne a roleta; ajuste com pinça e arraste para centralizar.';
+ }else $('wheelAreaStatus').textContent='A marcação oval está disponível no APK Android.';
+});
+
+let captureStream = null;
+let frameCallbackId = null;
+let frameTotal = 0;
+let rateWindowStart = 0;
+let rateWindowFrames = 0;
+
+function updateCaptureSupport(){
+ const nativeSupported = !!window.AndroidCapture;
+ document.body.classList.toggle('native-embedded', nativeSupported);
+ const supported = nativeSupported || !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+ $('supportStatus').textContent = nativeSupported
+  ? 'Pronto para capturar o navegador. Toque em “Compartilhar tela” para iniciar a análise.'
+  : supported
+   ? 'Captura de tela disponível neste navegador. Toque em “Compartilhar tela” e escolha a janela ou tela do vídeo.'
+   : 'Este navegador não oferece captura de tela. Use o APK Android para capturar a tela do aparelho.';
+ if(nativeSupported) $('startCapture').textContent='Compartilhar tela';
+ $('startCapture').disabled = !supported;
+}
+function stopFrameCounter(){
+ if(frameCallbackId !== null && typeof screenVideo.cancelVideoFrameCallback === 'function'){
+  screenVideo.cancelVideoFrameCallback(frameCallbackId);
+ }
+ frameCallbackId = null;
+}
+function countVideoFrame(now){
+ if(!captureStream || screenVideo.paused) return;
+ frameTotal++;
+ rateWindowFrames++;
+ $('frameCount').textContent = String(frameTotal);
+ if(!rateWindowStart) rateWindowStart = now;
+ const elapsed = now - rateWindowStart;
+ if(elapsed >= 1000){
+  const fps = rateWindowFrames * 1000 / elapsed;
+  $('frameRate').textContent = 'Taxa recebida: ' + fps.toFixed(1) + ' quadros/s';
+  rateWindowStart = now;
+  rateWindowFrames = 0;
+ }
+ if(typeof screenVideo.requestVideoFrameCallback === 'function'){
+  frameCallbackId = screenVideo.requestVideoFrameCallback(countVideoFrame);
+ }
+}
+function startFrameCounter(){
+ stopFrameCounter();
+ frameTotal = 0;
+ rateWindowStart = 0;
+ rateWindowFrames = 0;
+ $('frameCount').textContent = '0';
+ $('frameRate').textContent = 'Calculando taxa de quadros…';
+ if(typeof screenVideo.requestVideoFrameCallback === 'function'){
+  frameCallbackId = screenVideo.requestVideoFrameCallback(countVideoFrame);
+ }else{
+  $('frameRate').textContent = 'Contagem detalhada de quadros não suportada neste navegador.';
+ }
+}
+async function startCapture(){
+ if(window.AndroidCapture){
+  try{window.AndroidCapture.start();}catch(e){$('captureStatus').textContent='Não foi possível solicitar a captura nativa';}
+  return;
+ }
+ if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+  $('captureStatus').textContent = 'Captura não suportada';
+  $('captureDot').className = 'dot red';
+  return;
+ }
+ try{
+  captureStream = await navigator.mediaDevices.getDisplayMedia({
+   video:{frameRate:{ideal:30,max:60}},
+   audio:false
+  });
+  screenVideo.srcObject = captureStream;
+  await screenVideo.play();
+  $('startCapture').disabled = true;
+  $('stopCapture').disabled = false;
+  $('captureStatus').textContent = 'Vídeo recebido';
+  $('captureDot').className = 'dot green';
+  const track = captureStream.getVideoTracks()[0];
+  const settings = track && track.getSettings ? track.getSettings() : {};
+  const width = settings.width || screenVideo.videoWidth;
+  const height = settings.height || screenVideo.videoHeight;
+  $('resolution').textContent = width && height ? width + ' × ' + height : 'Aguardando…';
+  startFrameCounter();
+  if(track) track.addEventListener('ended', stopCapture, {once:true});
+ }catch(error){
+  captureStream = null;
+  $('captureStatus').textContent = error && error.name === 'NotAllowedError' ? 'Compartilhamento cancelado' : 'Falha ao capturar vídeo';
+  $('captureDot').className = 'dot red';
+ }
+}
+function stopCapture(){
+ if(nativeCaptureActive && window.AndroidCapture){window.AndroidCapture.stop();return;}
+ stopFrameCounter();
+ if(captureStream) captureStream.getTracks().forEach(track => track.stop());
+ captureStream = null;
+ screenVideo.srcObject = null;
+ nativeCaptureActive=false;nativeScreenImage.style.display='none';screenVideo.style.display='block';
+ $('startCapture').disabled = !(window.AndroidCapture || (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
+ $('stopCapture').disabled = true;
+ $('captureStatus').textContent = 'Captura encerrada';
+ $('captureDot').className = 'dot';
+ $('resolution').textContent = '—';
+ $('frameCount').textContent = '0';
+ $('frameRate').textContent = 'Taxa de quadros: —';
+}
+$('startCapture').addEventListener('click', startCapture);
+$('stopCapture').addEventListener('click', stopCapture);
+screenVideo.addEventListener('loadedmetadata', () => {
+ if(screenVideo.videoWidth && screenVideo.videoHeight){
+  $('resolution').textContent = screenVideo.videoWidth + ' × ' + screenVideo.videoHeight;
+ }
+});
+
+/* ===================================================================
+   MOTOR DE LEITURA DA RODA (sem DOM)
+   Anel polar normalizado pela elipse marcada: rho=1 é o aro depois dos
+   números; roda rho<0.84; pista da bolinha rho>1.05.
+   =================================================================== */
+const TAU=Math.PI*2,STEP=TAU/37,NB=120;
+const BAND_LO=0.84,BAND_HI=1.05,RHO_MIN=0.42,RHO_MAX=1.75;
+const MINPIX=8;
+const europeanWheel=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+const WHEEL=europeanWheel;
+const REDS=[1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+
+function wrapPi(a){return a-TAU*Math.round(a/TAU);}
+function linfit(xs,ys){const n=xs.length;let sx=0,sy=0,sxx=0,sxy=0;for(let i=0;i<n;i++){sx+=xs[i];sy+=ys[i];sxx+=xs[i]*xs[i];sxy+=xs[i]*ys[i];}const d=n*sxx-sx*sx;if(Math.abs(d)<1e-9)return null;const b=(n*sxy-sx*sy)/d;return{a:(sy-b*sx)/n,b:b};}
+function median(a){if(!a.length)return null;const s=a.slice().sort(function(x,y){return x-y;});return s[s.length>>1];}
+function pocketOf(phi,mirror){const k=((Math.round(phi/STEP)%37)+37)%37;return mirror?(37-k)%37:k;}
+function pocketAngle(k,mirror){return(mirror?-k:k)*STEP;}
+function cdist(a,b){const d=Math.abs(a-b)%37;return Math.min(d,37-d);}
+
+function buildRing(W,H,cal){
+  const idx=[],ang=[],rho=[];
+  for(let y=0;y<H;y++){const v=(y-cal.cy)/cal.ry;for(let x=0;x<W;x++){const u=(x-cal.cx)/cal.rx;const r=Math.sqrt(u*u+v*v);
+    if(r>=RHO_MIN&&r<=RHO_MAX){idx.push(y*W+x);ang.push(Math.atan2(v,u));rho.push(r);}}}
+  return{idx:Int32Array.from(idx),ang:Float32Array.from(ang),rho:Float32Array.from(rho)};
+}
+
+/* Bolinha: pixels claros, que acenderam em relação ao quadro anterior, pouco saturados, fora do aro dos números.
+   Zero: pixels verdes dentro da roda. */
+function analyzeFrame(img,ring,prev,thr){
+  const n=ring.idx.length;
+  const c=new Float32Array(NB),sn=new Float32Array(NB),cs=new Float32Array(NB),rh=new Float32Array(NB);
+  let gS=0,gC=0,gN=0;
+  for(let k=0;k<n;k++){
+    const p=ring.idx[k]<<2,r=img[p],g=img[p+1],b=img[p+2];
+    const Y=(r*77+g*150+b*29)>>8,rho=ring.rho[k];
+    if(rho<=0.9&&g-r>35&&g-b>-5&&g>55){const a=ring.ang[k];gS+=Math.sin(a);gC+=Math.cos(a);gN++;}
+    if(Y>=thr&&Y-prev[k]>45&&(rho<BAND_LO||rho>BAND_HI)){
+      const mx=r>g?(r>b?r:b):(g>b?g:b),mn=r<g?(r<b?r:b):(g<b?g:b);
+      if(mx-mn<70){const a=ring.ang[k],bi=Math.min(NB-1,((a+Math.PI)/TAU*NB)|0);c[bi]++;sn[bi]+=Math.sin(a);cs[bi]+=Math.cos(a);rh[bi]+=rho;}
+    }
+    prev[k]=Y;
+  }
+  const c3=new Float32Array(NB);
+  for(let i=0;i<NB;i++)c3[i]=c[(i+NB-1)%NB]+c[i]+c[(i+1)%NB];
+  let peaks=[];
+  for(let i=0;i<NB;i++){if(c3[i]>=MINPIX&&c3[i]>=c3[(i+NB-1)%NB]&&c3[i]>c3[(i+1)%NB])peaks.push(i);}
+  peaks.sort(function(a,b){return c3[b]-c3[a];});
+  peaks=peaks.slice(0,4);
+  const cands=peaks.map(function(i){let s=0,co=0,rr=0,cc=0;for(let d=-1;d<=1;d++){const j=(i+d+NB)%NB;s+=sn[j];co+=cs[j];rr+=rh[j];cc+=c[j];}return{ang:Math.atan2(s,co),rho:rr/cc,cnt:cc};});
+  return{cands:cands,zero:{n:gN,s:gS,c:gC}};
+}
+
+/* Velocidade da bolinha (rad/s): |B(t)-B(t-0.45s)| / dt */
+function ballSpeeds(sp){
+  const n=sp.T.length,out=[];let j=0;
+  for(let i=0;i<n;i++){while(sp.T[i]-sp.T[j]>0.45)j++;
+    if(i-j>=3){const dt=sp.T[i]-sp.T[j];out.push([(sp.T[i]+sp.T[j])/2,Math.abs(sp.B[i]-sp.B[j])/dt]);}}
+  return out;
+}
+
+/* Viés circular e largura da zona a partir dos últimos 60 resíduos */
+function model(spins){
+  const r=[];for(let i=Math.max(0,spins.length-60);i<spins.length;i++){if(typeof spins[i].res==='number')r.push(spins[i].res);}
+  const n=r.length;
+  if(n<5)return{n:n,C:0,R:0,w:6,ready:false};
+  let s=0,c=0;for(let i=0;i<n;i++){s+=Math.sin(r[i]);c+=Math.cos(r[i]);}
+  const R=Math.hypot(s,c)/n,C=Math.atan2(s,c);
+  const sig=Math.sqrt(-2*Math.log(Math.max(R,0.05)));
+  const w=Math.max(2,Math.min(9,Math.ceil(1.28*sig/STEP)));
+  return{n:n,C:C,R:R,w:w,ready:true};
+}
+
+/* Previsão: desaceleração linear da bolinha, velocidade crítica da queda, ângulo relativo à roda */
+function predictSpin(sp,mdl,critList,mirror){
+  const n=sp.T.length;if(n<24)return null;
+  const tNow=sp.T[n-1];
+  const pts=ballSpeeds(sp).filter(function(p){return p[0]>=tNow-3.2;});
+  if(pts.length<8)return null;
+  const f=linfit(pts.map(function(p){return p[0]-tNow;}),pts.map(function(p){return p[1];}));
+  if(!f)return null;
+  const vNow=f.a,b=f.b;
+  if(b>-0.05||vNow<=0)return null;
+  const crit=median(critList.slice(-30))||7.5;
+  const D=vNow>crit?(vNow-crit)/(-b):0;
+  if(D>25)return null;
+  let k=n-1;while(k>0&&tNow-sp.T[k]<1.5)k--;
+  const zs=(sp.Z[n-1]-sp.Z[k])/Math.max(1e-3,sp.T[n-1]-sp.T[k]);
+  const dir=sp.dir;
+  const phiNow=sp.B[n-1]-sp.Z[n-1];
+  const phiDrop=phiNow+dir*(vNow*D+b*D*D/2)-zs*D;
+  const phiFin=phiDrop+dir*mdl.C;
+  return{k:pocketOf(phiFin,mirror),w:mdl.w,phiDrop:phiDrop,dir:dir,D:D,vNow:vNow,t:tNow,crit:crit};
+}
+
+function Engine(W,H,cal,opts){
+  this.W=W;this.H=H;this.cal=cal;
+  this.ring=buildRing(W,H,cal);
+  this.prev=new Uint8Array(this.ring.idx.length);
+  this.thr=opts.thr||185;this.mirror=!!opts.mirror;this.hist=opts.hist;
+  this.onEnd=opts.onEnd||function(){};
+  this.primed=false;this.cool=-1;
+  this.zero={ok:false,raw:0,Z:0,t:0,vel:0,miss:0,seen:0,px:0};
+  this.tk={locked:false,dir:0,raw:0,B:0,v:0,lastSeen:0,pend:null};
+  this.spin=null;
+}
+Engine.prototype._zero=function(z,t){
+  const Zs=this.zero;
+  Zs.px=z.n;
+  if(z.n>=10){
+    const raw=Math.atan2(z.s,z.c);
+    if(!Zs.ok){Zs.ok=true;Zs.raw=raw;Zs.Z=raw;Zs.t=t;Zs.vel=0;Zs.miss=0;Zs.seen=t;}
+    else{const dt=Math.max(1e-3,t-Zs.t),d=wrapPi(raw-Zs.raw);Zs.Z+=d;Zs.raw=raw;const v=d/dt;if(Math.abs(v)<12)Zs.vel=Zs.vel*0.8+v*0.2;Zs.t=t;Zs.miss=0;Zs.seen=t;}
+  }else if(Zs.ok){const dt=t-Zs.t;Zs.Z+=Zs.vel*dt;Zs.raw=wrapPi(Zs.raw+Zs.vel*dt);Zs.t=t;Zs.miss++;}
+};
+Engine.prototype._acquire=function(c,t){
+  const tk=this.tk;
+  if(t<this.cool||!this.zero.ok){tk.pend=null;return;}
+  const p=tk.pend;
+  if(p&&t-p.t<0.35){
+    let bd=null,bdd=0;
+    for(let i=0;i<c.length;i++){const cd=c[i],d=wrapPi(cd.ang-p.ang);
+      if(Math.abs(d)>0.01&&Math.abs(d)<1.8&&(p.cum===0||Math.sign(d)===Math.sign(p.cum))){if(!bd||cd.cnt>bd.cnt){bd=cd;bdd=d;}}}
+    if(bd){p.cum+=bdd;p.count++;p.ang=bd.ang;p.t=t;
+      if(p.count>=5&&Math.abs(p.cum)>=1.2&&bd.rho>=BAND_HI)this._start(bd,t,p);}
+  }else if(c.length){tk.pend={ang:c[0].ang,t:t,t0:t,cum:0,count:1};}
+  else tk.pend=null;
+};
+Engine.prototype._start=function(bd,t,p){
+  const tk=this.tk;
+  tk.locked=true;tk.dir=Math.sign(p.cum);tk.raw=bd.ang;tk.B=bd.ang;tk.v=Math.abs(p.cum)/Math.max(0.05,t-p.t0);tk.lastSeen=t;tk.pend=null;
+  this.spin={T:[t],B:[bd.ang],Z:[this.zero.Z],R:[bd.rho],dir:tk.dir,dropped:false,wasTrack:true,inCnt:0,pred:null,lastPredT:-1,t0:t};
+};
+Engine.prototype._end=function(t){
+  const sp=this.spin,tk=this.tk;
+  tk.locked=false;tk.pend=null;this.spin=null;this.cool=t+3;
+  if(!sp)return null;
+  const n=sp.T.length;
+  if(n<20||sp.T[n-1]-sp.T[0]<2)return null;
+  const phiAct=sp.B[n-1]-sp.Z[n-1];
+  const e={t:Date.now(),valid:false,kPred:null,w:null,kReal:null,hit:null,res:null,dir:sp.dir,phiDrop:null,phiAct:phiAct};
+  if(sp.dropped&&sp.R[n-1]<0.9){e.valid=true;e.kReal=pocketOf(phiAct,this.mirror);}
+  if(sp.pred){e.kPred=sp.pred.k;e.w=sp.pred.w;e.phiDrop=sp.pred.phiDrop;
+    if(e.valid){e.hit=cdist(e.kReal,e.kPred)<=e.w;e.res=sp.dir*wrapPi(phiAct-sp.pred.phiDrop);}}
+  this.hist.spins.push(e);
+  if(this.hist.spins.length>200)this.hist.spins.shift();
+  this.onEnd(e);
+  return e;
+};
+Engine.prototype.finish=function(t){if(this.spin)this._end(t);};
+Engine.prototype.frame=function(img,t){
+  const a=analyzeFrame(img,this.ring,this.prev,this.primed?this.thr:999);
+  this.primed=true;
+  this._zero(a.zero,t);
+  const tk=this.tk;let ball=null;
+  if(!tk.locked){this._acquire(a.cands,t);}
+  else{
+    const gap=t-tk.lastSeen,exp=tk.raw+tk.dir*tk.v*gap;
+    let best=null,bestScore=1e9,bestDelta=0;
+    for(let i=0;i<a.cands.length;i++){
+      const cd=a.cands[i];let ok,delta,score;
+      if(gap>0.3&&cd.rho<0.9){ok=true;delta=wrapPi(cd.ang-tk.raw);score=-cd.cnt;}
+      else{const d=wrapPi(cd.ang-exp);ok=Math.abs(d)<Math.min(1.2,0.5+gap*3);delta=tk.dir*tk.v*gap+d;score=Math.abs(d);}
+      if(ok&&score<bestScore){bestScore=score;best=cd;bestDelta=delta;}
+    }
+    if(best){
+      const sp=this.spin;
+      if(gap<0.25&&gap>1e-3){const inst=Math.abs(bestDelta)/gap;if(inst<40)tk.v=tk.v*0.7+inst*0.3;}
+      tk.B+=bestDelta;tk.raw=best.ang;tk.lastSeen=t;ball=best;
+      sp.T.push(t);sp.B.push(tk.B);sp.Z.push(this.zero.Z);sp.R.push(best.rho);
+      if(best.rho<0.9)sp.inCnt++;else sp.inCnt=0;
+      if(!sp.dropped&&sp.inCnt>=3&&sp.wasTrack){
+        sp.dropped=true;
+        const sv=ballSpeeds(sp),last=sv[sv.length-1];
+        if(last&&last[1]>2&&last[1]<40){this.hist.crit.push(last[1]);if(this.hist.crit.length>60)this.hist.crit.shift();}
+      }
+      if(!sp.dropped&&best.rho>=BAND_HI&&t-sp.lastPredT>0.25){
+        sp.lastPredT=t;
+        const p=predictSpin(sp,model(this.hist.spins),this.hist.crit,this.mirror);
+        if(p)sp.pred=p;
+      }
+    }else if(gap>1.4||(this.spin&&t-this.spin.t0>70)){this._end(t);}
+  }
+  const sp=this.spin;
+  return{ball:ball,zero:this.zero.ok?{raw:this.zero.raw}:null,zeroMiss:this.zero.miss,zeroAge:this.zero.ok?t-this.zero.seen:null,zeroPx:this.zero.px,locked:tk.locked,
+    vBall:tk.locked?tk.v:0,vWheel:Math.abs(this.zero.vel),laps:sp?Math.abs(tk.B)/TAU:0,
+    phase:sp?(sp.dropped?'roda':'pista'):'espera',pred:sp?sp.pred:null,dropped:sp?sp.dropped:false,t:t};
+};
+
+/* ===================================================================
+   INTEGRAÇÃO COM A PÁGINA
+   =================================================================== */
+let tracking = false;
+let trackingCallbackId = null;
+let trackingCanvas = document.createElement('canvas');
+let trackingCtx = trackingCanvas.getContext('2d', {willReadFrequently:true});
+let trackingFrameBusy = false;
+let eng = null, engKey = '', lastT = -1, lastPaint = 0;
+let trackThr = 185, trackMirror = false;
+let lastSpin = null, lastZone = null, regionKey = '';
+
+const HIST_KEY='roulette-spin-history-v2';
+let hist=(function(){try{const j=JSON.parse(localStorage.getItem(HIST_KEY)||'null');if(j&&Array.isArray(j.spins)&&Array.isArray(j.crit))return j;}catch(e){}return{spins:[],crit:[]};})();
+function saveHist(){try{localStorage.setItem(HIST_KEY,JSON.stringify(hist));}catch(e){}}
+
+function pocketClass(n){return n===0?'green':(REDS.includes(n)?'red':'black');}
+function trackingStatus(text){$('wheelAreaStatus').textContent=text;}
+function setZeroStatus(state,detail){
+ const el=$('zeroTrackingStatus');if(!el)return;
+ const dot=el.querySelector('.dot'),label=el.querySelector('span:last-child');
+ if(state==='detected'){dot.className='dot green';label.textContent='ZERO DETECTADO';}
+ else if(state==='following'){dot.className='dot';label.textContent='ZERO ACOMPANHADO';}
+ else{dot.className='dot red';label.textContent='ZERO NÃO LOCALIZADO';}
+ el.title=detail||label.textContent;
+}
+
+function qualityText(){
+ const m=model(hist.spins);
+ if(!m.ready)return 'aprendendo: '+m.n+' de 5 giros medidos';
+ if(m.R<0.35)return m.n+' giros, erro muito espalhado (ainda é palpite)';
+ return m.n+' giros, erro concentrado (índice '+m.R.toFixed(2)+')';
+}
+/* Desenha a zona (centro + vizinhos) só quando ela muda. */
+function paintRegion(k,w,text){
+ const key=k===null?'none':k+':'+w;
+ if(key!==regionKey){
+  regionKey=key;
+  if(k===null){$('regionCenter').textContent='—';$('predictedRegion').innerHTML='';}
+  else{
+   const nums=[];for(let d=-w;d<=w;d++)nums.push(WHEEL[(k+d+37)%37]);
+   $('regionCenter').textContent=String(WHEEL[k]);
+   $('predictedRegion').innerHTML=nums.map((n,i)=>'<div class="pocket '+pocketClass(n)+'" style="'+(i===w?'outline:2px solid #f3d58d;':'')+'">'+n+'</div>').join('');
+  }
+ }
+ $('regionStatus').textContent=text;
+}
+function clearPossibleRegion(message){
+ if(lastZone){
+  const e=lastSpin;
+  const res=e&&e.valid?(' · caiu '+WHEEL[e.kReal]+' ('+(e.hit?'acertou':(e.hit===false?'errou':'sem previsão a comparar'))+')'):'';
+  paintRegion(lastZone.k,lastZone.w,'Último giro: previsto '+WHEEL[lastZone.k]+' · ±'+lastZone.w+' casas'+res+(message?' · '+message:''));
+ }else paintRegion(null,0,message||'Aguardando detecção simultânea do zero verde e da bolinha.');
+}
+
+function renderHistory(){
+ const v=hist.spins.filter(e=>e.valid&&e.kPred!==null),hits=v.filter(e=>e.hit).length;
+ const chance=v.length?v.reduce((a,e)=>a+(2*e.w+1)/37,0)/v.length:0;
+ $('historyCount').textContent=String(v.length);
+ $('historyRate').textContent=v.length?hits+' ('+Math.round(hits/v.length*100)+'%)':'—';
+ $('chanceRate').textContent=v.length?'Acaso médio estimado: '+(chance*100).toFixed(1)+'%':'Acaso: —';
+ $('historyList').textContent=hist.spins.slice(-8).reverse().map(e=>'Previsto '+(e.kPred!==null?WHEEL[e.kPred]:'–')+' · caiu '+(e.valid?WHEEL[e.kReal]:'?')+' · '+(e.hit?'acertou':(e.hit===false?'errou':'sem dado'))+(e.w!==null?' · zona ±'+e.w:'')).join(' | ');
+}
+function onSpinEnd(e){
+ lastSpin=e;
+ lastZone=e.kPred!==null?{k:e.kPred,w:e.w}:null;
+ saveHist();renderHistory();
+ $('historyStatus').textContent=(e.valid?'Giro registrado: caiu no '+WHEEL[e.kReal]+' (leitura automática). ':'Giro registrado, mas não consegui ler onde caiu. ')+'Se estiver errado, digite o número e toque em Registrar resultado. '+qualityText()+'.';
+}
+function recordActual(){
+ const actual=Number($('actualNumber').value);
+ if(!Number.isInteger(actual)||actual<0||actual>36){$('historyStatus').textContent='Digite um número inteiro entre 0 e 36.';return;}
+ const e=lastSpin;
+ if(!e||hist.spins[hist.spins.length-1]!==e){$('historyStatus').textContent='Ainda não há giro finalizado para corrigir. O giro é registrado quando a bolinha cai e some do quadro.';return;}
+ const k=WHEEL.indexOf(actual);
+ e.valid=true;e.kReal=k;
+ if(e.kPred!==null&&e.phiDrop!==null){e.hit=cdist(k,e.kPred)<=e.w;e.res=e.dir*wrapPi(pocketAngle(k,trackMirror)-e.phiDrop);}
+ $('actualNumber').value='';saveHist();renderHistory();
+ $('historyStatus').textContent='Resultado corrigido para '+actual+'. '+qualityText()+'.';
+ clearPossibleRegion('');
+}
+$('saveResult').addEventListener('click',recordActual);
+$('clearHistory').addEventListener('click',()=>{
+ hist.spins=[];hist.crit=[];lastSpin=null;lastZone=null;saveHist();renderHistory();regionKey='';clearPossibleRegion('');
+ $('historyStatus').textContent='Histórico zerado.';
+});
+$('thr').addEventListener('input',function(){trackThr=+this.value;$('thrv').textContent=this.value;if(eng)eng.thr=trackThr;});
+$('mirror').addEventListener('change',function(){trackMirror=this.checked;if(eng)eng.mirror=trackMirror;});
+
+function frameSize(){
+ const vw=sourceWidth(),vh=sourceHeight(),scale=Math.min(1,720/vw);
+ return {w:Math.max(1,Math.round(vw*scale)),h:Math.max(1,Math.round(vh*scale))};
+}
+function engineKey(s){const a=wheelArea;return s.w+'x'+s.h+':'+a.cx+','+a.cy+','+a.rx+','+a.ry;}
+function buildEngine(s){
+ const a=wheelArea;
+ trackingCanvas.width=s.w;trackingCanvas.height=s.h;
+ const cal={cx:a.cx*s.w,cy:a.cy*s.h,rx:Math.max(8,a.rx*s.w),ry:Math.max(8,a.ry*s.h)};
+ eng=new Engine(s.w,s.h,cal,{thr:trackThr,mirror:trackMirror,hist:hist,onEnd:onSpinEnd});
+ engKey=engineKey(s);
+}
+
+function paintLive(i){
+ if(i.ball&&eng&&nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser){
+  const c=eng.cal,x=c.cx+c.rx*i.ball.rho*Math.cos(i.ball.ang),y=c.cy+c.ry*i.ball.rho*Math.sin(i.ball.ang);
+  window.AndroidCapture.showLaser(Math.min(1,Math.max(0,x/eng.W)),Math.min(1,Math.max(0,y/eng.H)));
+ }
+ const nowMs=performance.now();
+ if(nowMs-lastPaint<100)return;lastPaint=nowMs;
+ // roda
+ if(i.zero&&i.zeroMiss===0){
+  setZeroStatus('detected','Setor verde localizado no quadro atual · '+i.zeroPx+' pixels.');
+  $('wheelSpeed').textContent=(i.vWheel*60/TAU).toFixed(1)+' RPM';
+  $('wheelState').textContent='Zero verde detectado · '+i.zeroPx+' pixels';
+ }else if(i.zero&&i.zeroAge!==null&&i.zeroAge<=3){
+  setZeroStatus('following','Zero não aparece neste quadro; posição estimada pela última velocidade medida.');
+  $('wheelSpeed').textContent='Acompanhando';
+  $('wheelState').textContent='Posição do zero extrapolada · '+i.zeroAge.toFixed(1)+' s desde a última detecção.';
+ }else{
+  setZeroStatus('lost','O setor verde não foi localizado e não há extrapolação confiável.');
+  $('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Zero não localizado; aguardando nova detecção verde.';
+ }
+ // bolinha
+ if(i.locked){
+  $('ballSpeed').textContent=(i.vBall/TAU).toFixed(2)+' voltas/s';
+  const p=i.pred,eta=p&&i.phase==='pista'?' · queda em ~'+Math.max(0,p.D-(i.t-p.t)).toFixed(1)+' s':'';
+  $('ballState').textContent=(i.phase==='roda'?'Na roda':'Na pista')+' · '+i.laps.toFixed(1)+' voltas'+eta;
+ }else{
+  $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Aguardando pico móvel consistente na pista externa.';
+ }
+ // zona
+ const p=i.pred;
+ if(p){
+  const eta=Math.max(0,p.D-(i.t-p.t));
+  paintRegion(p.k,p.w,'Estimativa experimental · ±'+p.w+' casas · '+(i.dropped?'congelada na saída da pista':'queda em ~'+eta.toFixed(1)+' s')+' · '+qualityText());
+ }else if(i.locked)clearPossibleRegion('Rastreio ativo; aguardando desaceleração mensurável e velocidade crítica.');
+ else if(!i.zero)clearPossibleRegion('Aguardando o zero verde.');
+ else clearPossibleRegion('Aguardando lançamento. '+qualityText()+'.');
+}
+
+function stopTracking(){
+ tracking=false;
+ if(eng){try{eng.finish(lastT+2);}catch(e){}eng=null;engKey='';}
+ if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(-1,-1);
+ if(trackingCallbackId!==null && typeof screenVideo.cancelVideoFrameCallback==='function')screenVideo.cancelVideoFrameCallback(trackingCallbackId);
+ trackingCallbackId=null;
+ $('startTracking').disabled=false;
+ $('stopTracking').disabled=true;
+}
+function trackingFrame(now,meta){
+ if(!tracking||!captureStream||(!nativeCaptureActive&&screenVideo.paused))return;
+ if(trackingFrameBusy)return;trackingFrameBusy=true;
+ try{
+  const source=activeSource(),vw=sourceWidth(),vh=sourceHeight();
+  if(nativeCaptureActive&&(!source.complete||!source.naturalWidth))return;
+  if(!vw||!vh)throw new Error('Vídeo sem dimensões.');
+  const s=frameSize();
+  if(!wheelArea)throw new Error('Sem área da roleta.');
+  if(!eng||engineKey(s)!==engKey)buildEngine(s);
+  trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
+  const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
+  const t=((meta&&meta.captureTime)?meta.captureTime:now)/1000;
+  if(t<=lastT)return;
+  lastT=t;
+  paintLive(eng.frame(frame.data,t));
+ }catch(e){
+  $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Falha ao analisar o quadro.';
+  $('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Falha ao analisar o quadro.';
+ }finally{trackingFrameBusy=false;}
+ if(tracking&&!nativeCaptureActive&&typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
+}
+function startTracking(){
+ const source=activeSource();
+ if(!captureStream||(!nativeCaptureActive&&screenVideo.readyState<2)||(nativeCaptureActive&&(!source.complete||!source.naturalWidth))){trackingStatus('Primeiro toque em Compartilhar tela para iniciar a captura.');return;}
+ if(!wheelArea){trackingStatus('Primeiro desenhe e alinhe a área da roleta na tela do navegador.');return;}
+ buildEngine(frameSize());
+ lastT=-1;lastSpin=null;lastZone=null;regionKey='';
+ setZeroStatus('lost','Aguardando a primeira detecção do setor verde.');clearPossibleRegion();
+ tracking=true;$('startTracking').disabled=true;$('stopTracking').disabled=false;
+ $('ballSpeed').textContent='Procurando…';$('wheelSpeed').textContent='Procurando…';
+ $('ballState').textContent='Detectando a bolinha automaticamente…';$('wheelState').textContent='Detectando o zero verde automaticamente…';
+ $('historyStatus').textContent='Aprendendo com os giros: '+qualityText()+'.';
+ if(nativeCaptureActive)trackingFrame(performance.now());
+ else if(typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
+ else{stopTracking();trackingStatus('Este navegador não oferece processamento de quadros.');}
+}
+$('startTracking').addEventListener('click',startTracking);
+$('stopTracking').addEventListener('click',stopTracking);
+
+window.onBrowserCircle=function(cx,cy,rx,ry,rotation){
+ wheelArea={cx,cy,rx,ry,rotation:Number(rotation||0)};
+ $('wheelAreaStatus').textContent='Círculo registrado · centro '+(cx*100).toFixed(1)+'% / '+(cy*100).toFixed(1)+'%';
+ try{localStorage.setItem('roulette-wheel-area-v1',JSON.stringify(wheelArea));}catch(e){}
+};
+try{const savedArea=JSON.parse(localStorage.getItem('roulette-wheel-area-v1')||'null');if(savedArea&&['cx','cy','rx','ry'].every(k=>Number.isFinite(savedArea[k]))){wheelArea=savedArea;if(!Number.isFinite(wheelArea.rotation))wheelArea.rotation=0;$('wheelAreaStatus').textContent='Círculo salvo · centro '+(wheelArea.cx*100).toFixed(1)+'% / '+(wheelArea.cy*100).toFixed(1)+'%';}}catch(e){}
+window.onNativeCaptureStarted=function(width,height){
+ nativeCaptureActive=true;captureStream={native:true};
+ screenVideo.pause();screenVideo.srcObject=null;screenVideo.style.display='none';nativeScreenImage.style.display='block';
+ $('startCapture').disabled=true;$('stopCapture').disabled=false;
+ $('captureStatus').textContent='Captura Android ativa';$('captureDot').className='dot green';
+ $('resolution').textContent=width+' × '+height;$('frameCount').textContent='0';$('frameRate').textContent='Recebendo quadros nativos…';
+};
+let nativeFrames=0,nativeRateStart=0;
+window.onNativeFrame=function(dataUrl,width,height){
+ if(!nativeCaptureActive)return;
+ nativeFrames++;$('frameCount').textContent=String(nativeFrames);
+ const now=performance.now();if(!nativeRateStart)nativeRateStart=now;
+ if(now-nativeRateStart>=1000){$('frameRate').textContent='Taxa recebida: '+(nativeFrames*1000/(now-nativeRateStart)).toFixed(1)+' quadros/s';nativeFrames=0;nativeRateStart=now;}
+ const tRecv=now;
+ nativeScreenImage.onload=function(){if(tracking)trackingFrame(tRecv);};
+ nativeScreenImage.src=dataUrl;
+};
+window.onNativeCaptureError=function(message){$('captureStatus').textContent=message;$('captureDot').className='dot red';};
+window.onNativeCaptureStopped=function(){
+ stopTracking();stopFrameCounter();captureStream=null;nativeCaptureActive=false;
+ nativeScreenImage.src='';nativeScreenImage.style.display='none';screenVideo.style.display='block';
+ $('startCapture').disabled=false;$('stopCapture').disabled=true;
+ $('captureStatus').textContent='Captura encerrada';$('captureDot').className='dot';
+ $('resolution').textContent='—';$('frameCount').textContent='0';$('frameRate').textContent='Taxa de quadros: —';
+};
+renderHistory();
+clearPossibleRegion();
+updateCaptureSupport();
+</script>
+</body>
+</html>
