@@ -495,7 +495,8 @@ function analyzeFrame(img,ring,prev,thr){
   let peaks=[];
   for(let i=0;i<NB;i++){if(c3[i]>=MINPIX&&c3[i]>=c3[(i+NB-1)%NB]&&c3[i]>c3[(i+1)%NB])peaks.push(i);}
   peaks.sort(function(a,b){return c3[b]-c3[a];});
-  peaks=peaks.slice(0,4);
+  // Mantém candidatos extras: o motor de aquisição filtra a pista externa depois.
+  peaks=peaks.slice(0,8);
   const cands=peaks.map(function(i){let s=0,co=0,rr=0,cc=0;for(let d=-1;d<=1;d++){const j=(i+d+NB)%NB;s+=sn[j];co+=cs[j];rr+=rh[j];cc+=c[j];}return{ang:Math.atan2(s,co),rho:rr/cc,cnt:cc};});
   return{cands:cands,zero:{n:gN,s:gS,c:gC}};
 }
@@ -565,15 +566,19 @@ Engine.prototype._zero=function(z,t){
 Engine.prototype._acquire=function(c,t){
   const tk=this.tk;
   if(t<this.cool||!this.zero.ok){tk.pend=null;return;}
+  // Na aquisição, só aceita pontos na pista externa. Isso evita iniciar
+  // o rastreio com reflexos, números da roda ou a bolinha reserva no mastro.
+  const outer=c.filter(cd=>cd.rho>=BAND_HI&&cd.rho<=RHO_MAX);
+  if(!outer.length){tk.pend=null;return;}
   const p=tk.pend;
   if(p&&t-p.t<0.35){
     let bd=null,bdd=0;
-    for(let i=0;i<c.length;i++){const cd=c[i],d=wrapPi(cd.ang-p.ang);
+    for(let i=0;i<outer.length;i++){const cd=outer[i],d=wrapPi(cd.ang-p.ang);
       if(Math.abs(d)>0.01&&Math.abs(d)<1.8&&(p.cum===0||Math.sign(d)===Math.sign(p.cum))){if(!bd||cd.cnt>bd.cnt){bd=cd;bdd=d;}}}
     if(bd){p.cum+=bdd;p.count++;p.ang=bd.ang;p.t=t;
-      if(p.count>=5&&Math.abs(p.cum)>=1.2&&bd.rho>=BAND_HI)this._start(bd,t,p);}
-  }else if(c.length){tk.pend={ang:c[0].ang,t:t,t0:t,cum:0,count:1};}
-  else tk.pend=null;
+      if(p.count>=5&&Math.abs(p.cum)>=1.2)this._start(bd,t,p);}
+    else tk.pend=null;
+  }else{outer.sort((a,b)=>b.cnt-a.cnt);tk.pend={ang:outer[0].ang,t:t,t0:t,cum:0,count:1};}
 };
 Engine.prototype._start=function(bd,t,p){
   const tk=this.tk;
