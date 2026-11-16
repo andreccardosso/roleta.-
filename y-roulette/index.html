@@ -512,8 +512,12 @@ function cdist(a,b){const d=Math.abs(a-b)%37;return Math.min(d,37-d);}
 
 function buildRing(W,H,cal){
   const idx=[],ang=[],rho=[];
-  for(let y=0;y<H;y++){const v=(y-cal.cy)/cal.ry;for(let x=0;x<W;x++){const u=(x-cal.cx)/cal.rx;const r=Math.sqrt(u*u+v*v);
-    if(r>=RHO_MIN&&r<=RHO_MAX){idx.push(y*W+x);ang.push(Math.atan2(v,u));rho.push(r);}}}
+  const rot=Number(cal.rotation||0),co=Math.cos(rot),si=Math.sin(rot);
+  for(let y=0;y<H;y++){for(let x=0;x<W;x++){
+    const dx=x-cal.cx,dy=y-cal.cy;
+    const u=(dx*co+dy*si)/cal.rx,v=(-dx*si+dy*co)/cal.ry,r=Math.sqrt(u*u+v*v);
+    if(r>=RHO_MIN&&r<=RHO_MAX){idx.push(y*W+x);ang.push(Math.atan2(v,u));rho.push(r);}
+  }}
   return{idx:Int32Array.from(idx),ang:Float32Array.from(ang),rho:Float32Array.from(rho)};
 }
 
@@ -782,11 +786,11 @@ function frameSize(){
  const vw=sourceWidth(),vh=sourceHeight(),scale=Math.min(1,720/vw);
  return {w:Math.max(1,Math.round(vw*scale)),h:Math.max(1,Math.round(vh*scale))};
 }
-function engineKey(s){const a=wheelArea;return s.w+'x'+s.h+':'+a.cx+','+a.cy+','+a.rx+','+a.ry;}
+function engineKey(s){const a=wheelArea;return s.w+'x'+s.h+':'+a.cx+','+a.cy+','+a.rx+','+a.ry+','+Number(a.rotation||0);}
 function buildEngine(s){
  const a=wheelArea;
  trackingCanvas.width=s.w;trackingCanvas.height=s.h;
- const cal={cx:a.cx*s.w,cy:a.cy*s.h,rx:Math.max(8,a.rx*s.w),ry:Math.max(8,a.ry*s.h)};
+ const cal={cx:a.cx*s.w,cy:a.cy*s.h,rx:Math.max(8,a.rx*s.w),ry:Math.max(8,a.ry*s.h),rotation:Number(a.rotation||0)};
  eng=new Engine(s.w,s.h,cal,{thr:trackThr,mirror:trackMirror,hist:hist,onEnd:onSpinEnd});
  engKey=engineKey(s);
 }
