@@ -189,8 +189,8 @@ class MainActivity : Activity() {
         lastFrameAt = now
         captureBusy = true
 
-        val targetWidth = minOf(browserView.width, 720)
-        val targetHeight = (browserView.height.toFloat() * targetWidth / browserView.width).toInt().coerceAtLeast(1)
+        val targetWidth = browserView.width
+        val targetHeight = browserView.height
         val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -228,10 +228,12 @@ class MainActivity : Activity() {
     private fun deliverFrame(bitmap: Bitmap) {
         try {
             val output = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 55, output)
+            val scaled = if (bitmap.width > 720) Bitmap.createScaledBitmap(bitmap, 720, (bitmap.height * 720f / bitmap.width).toInt().coerceAtLeast(1), true) else bitmap
+            scaled.compress(Bitmap.CompressFormat.JPEG, 55, output)
             val encoded = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-            val width = bitmap.width
-            val height = bitmap.height
+            val width = scaled.width
+            val height = scaled.height
+            if (scaled !== bitmap) scaled.recycle()
             val js = "window.onNativeFrame && window.onNativeFrame('data:image/jpeg;base64,$encoded',$width,$height)"
             analyzerView.evaluateJavascript(js, null)
         } catch (_: Exception) {
