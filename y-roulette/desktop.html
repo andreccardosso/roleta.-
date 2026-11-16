@@ -8,8 +8,7 @@
 <style>
 :root{color-scheme:dark;--bg:#0b1117;--panel:#141e28;--panel2:#1b2935;--line:#344554;--text:#edf3f7;--muted:#9aabb8;--gold:#e4b85d;--green:#16875b;--red:#b93236}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font:14px system-ui,Segoe UI,sans-serif}
-#browser{position:fixed;inset:0;background:#080c10}#roulette{width:100%;height:100%;border:0;background:#080c10}
-#fallback{position:absolute;right:16px;top:12px;z-index:2;background:#17232d;border:1px solid var(--line);border-radius:10px;padding:9px 12px;color:var(--text);text-decoration:none;font-weight:700}
+#toolbar{position:fixed;z-index:5;left:0;right:0;top:0;height:54px;display:flex;align-items:center;gap:7px;padding:8px 12px 8px 350px;background:#121c26;border-bottom:1px solid var(--line)}#toolbar button{padding:7px 11px;min-width:36px}#address{flex:1;min-width:80px;height:36px;border:1px solid var(--line);border-radius:9px;background:#080f16;color:var(--text);padding:0 12px;font:14px system-ui;outline:none}#address:focus{border-color:var(--gold)}#go{background:var(--gold);color:#211a0c;border-color:var(--gold)}#browser{position:fixed;inset:54px 0 0;background:#080c10}#roulette{width:100%;height:100%;border:0;background:#080c10}@media(max-width:700px){#toolbar{padding-left:8px}#panel{top:62px}}
 #panel{position:fixed;z-index:10;left:18px;top:18px;width:310px;max-height:calc(100vh - 36px);display:flex;flex-direction:column;background:#111a23f5;border:1px solid #566574;border-radius:14px;box-shadow:0 12px 40px #0009;backdrop-filter:blur(12px);overflow:hidden;resize:both;min-width:270px;min-height:180px}
 #drag{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;background:#202c37;border-bottom:1px solid var(--line);cursor:move;user-select:none}
 #drag strong{letter-spacing:.08em}#drag small{color:var(--muted)}.headActions{display:flex;gap:5px}.headActions button{padding:4px 8px}
@@ -29,8 +28,8 @@ button:hover{border-color:var(--gold)}button:focus-visible{outline:2px solid var
 </style>
 </head>
 <body>
-<div id="browser"><iframe id="roulette" title="Roleta ao vivo" src="https://www.casino.org/casinoscores/pt-br/immersive-roulette/" allow="fullscreen; autoplay"></iframe></div>
-<a id="fallback" href="https://www.casino.org/casinoscores/pt-br/immersive-roulette/" target="_blank" rel="noopener">Abrir roleta em nova aba ↗</a>
+<nav id="toolbar" aria-label="Barra do navegador"><button id="back" title="Voltar">←</button><button id="forward" title="Avançar">→</button><button id="reload" title="Recarregar">⟳</button><input id="address" type="text" placeholder="Pesquisar ou digitar endereço" autocomplete="off" spellcheck="false" aria-label="Pesquisar ou digitar endereço"><button id="go">Ir</button></nav>
+<div id="browser"><iframe id="roulette" title="Página do navegador" src="about:blank" allow="fullscreen; autoplay"></iframe></div>
 <section id="panel" aria-label="Painel flutuante Y Analyzer">
  <header id="drag"><div><strong>Y ANALYZER</strong><br><small>Painel flutuante · arraste para mover</small></div><div class="headActions"><button id="collapse" title="Minimizar painel">−</button></div></header>
  <div id="content">
@@ -58,6 +57,15 @@ function record(){if(selected===null){$('chosen').textContent='Selecione primeir
 $('record').onclick=record;$('clear').onclick=()=>{selected=null;$('chosen').textContent='Escolha um número de 0 a 36.';drawNumbers();drawStrategy()};
 $('collapse').onclick=()=>{$('panel').classList.add('closed');$('minimized').style.display='block'};$('minimized').onclick=()=>{$('panel').classList.remove('closed');$('minimized').style.display='none'};
 const panel=$('panel'),handle=$('drag');let drag=null;handle.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;const r=panel.getBoundingClientRect();drag={x:e.clientX-r.left,y:e.clientY-r.top};handle.setPointerCapture(e.pointerId)});handle.addEventListener('pointermove',e=>{if(!drag)return;panel.style.left=Math.max(0,Math.min(innerWidth-panel.offsetWidth,e.clientX-drag.x))+'px';panel.style.top=Math.max(0,Math.min(innerHeight-60,e.clientY-drag.y))+'px'});handle.addEventListener('pointerup',()=>drag=null);handle.addEventListener('pointercancel',()=>drag=null);
+
+const address=$('address'),frame=$('roulette');
+function navigate(){let value=address.value.trim();if(!value)return;let target;if(/^https?:\\/\\//i.test(value))target=value;else if(/^[\\w-]+(\\.[\\w-]+)+([/:?#].*)?$/i.test(value))target='https://'+value;else target='https://www.google.com/search?q='+encodeURIComponent(value);frame.src=target;address.value=target}
+$('go').addEventListener('click',navigate);
+address.addEventListener('keydown',e=>{if(e.key==='Enter')navigate()});
+$('reload').addEventListener('click',()=>{try{frame.contentWindow.location.reload()}catch(e){frame.src=frame.src}});
+$('back').addEventListener('click',()=>{try{frame.contentWindow.history.back()}catch(e){}});
+$('forward').addEventListener('click',()=>{try{frame.contentWindow.history.forward()}catch(e){}});
+
 drawNumbers();drawStrategy();renderHistory();if(history.length){$('lastNumber').textContent=history[0];$('lastInfo').textContent='Salvo neste computador';$('lastNumber').style.background=history[0]===0?'var(--green)':reds.has(history[0])?'var(--red)':'#26323d'}
 </script>
 </body>
