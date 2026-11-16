@@ -421,22 +421,20 @@ async function startCapture(){
  }
 }
 function stopCapture(){
- if(nativeCaptureActive && window.AndroidCapture){window.AndroidCapture.stop();return;}
- stopTracking();
- stopFrameCounter();
- if(captureStream && typeof captureStream.getTracks==='function') captureStream.getTracks().forEach(track => track.stop());
- captureStream = null;
-  try{screenVideo.pause();}catch(e){}
-  screenVideo.removeAttribute('src');screenVideo.load();
- }else screenVideo.srcObject = null;
- nativeCaptureActive=false;nativeScreenImage.style.display='none';screenVideo.style.display='block';
- $('startCapture').disabled = !(window.AndroidCapture || (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
- $('stopCapture').disabled = true;
- $('captureStatus').textContent = 'Captura encerrada';
- $('captureDot').className = 'dot';
- $('resolution').textContent = '—';
- $('frameCount').textContent = '0';
- $('frameRate').textContent = 'Taxa de quadros: —';
+  if(nativeCaptureActive && window.AndroidCapture){window.AndroidCapture.stop();return;}
+  stopTracking();
+  stopFrameCounter();
+  if(captureStream && typeof captureStream.getTracks==='function') captureStream.getTracks().forEach(track => track.stop());
+  captureStream = null;
+  screenVideo.srcObject = null;
+  nativeCaptureActive=false;nativeScreenImage.style.display='none';screenVideo.style.display='block';
+  $('startCapture').disabled = !(window.AndroidCapture || (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
+  $('stopCapture').disabled = true;
+  $('captureStatus').textContent = 'Captura encerrada';
+  $('captureDot').className = 'dot';
+  $('resolution').textContent = '—';
+  $('frameCount').textContent = '0';
+  $('frameRate').textContent = 'Taxa de quadros: —';
 }
 $('startCapture').addEventListener('click', startCapture);
 $('stopCapture').addEventListener('click', stopCapture);
