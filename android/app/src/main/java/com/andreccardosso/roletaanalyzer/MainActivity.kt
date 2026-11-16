@@ -85,8 +85,8 @@ class MainActivity : Activity() {
             settings.mediaPlaybackRequiresUserGesture = false
             settings.javaScriptCanOpenWindowsAutomatically = true
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            settings.setSupportZoom(true)
-            settings.builtInZoomControls = true
+            settings.setSupportZoom(false)
+            settings.builtInZoomControls = false
             settings.displayZoomControls = false
             isVerticalScrollBarEnabled = true
             isHorizontalScrollBarEnabled = true
@@ -164,7 +164,6 @@ class MainActivity : Activity() {
             runOnUiThread {
                 val script = """
                     (function(){
-                      window.__yCircleDrawing = true;
                       var overlay=document.getElementById('__yWheelCircle');
                       if(!overlay){
                         overlay=document.createElement('div');
@@ -172,56 +171,76 @@ class MainActivity : Activity() {
                         overlay.style.cssText='position:fixed;display:none;border:3px solid #ffd34e;border-radius:50%;background:rgba(255,211,78,.10);box-shadow:0 0 12px #ffd34e;transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;';
                         document.documentElement.appendChild(overlay);
                       }
-                      var start=null;
-                      function coords(e){
-                        var p=(e.changedTouches&&e.changedTouches[0])||(e.touches&&e.touches[0])||e;
-                        return {x:p.clientX,y:p.clientY};
+                      var active=true, drawing=true, pointers={}, center=null, radius=0;
+                      var first=null, dragStart=null, pinchStart=0, pinchRadius=0;
+                      document.documentElement.style.touchAction='none';
+                      function point(e){return {x:e.clientX,y:e.clientY};}
+                      function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+                      function paint(){
+                        if(!center)return;
+                        overlay.style.display='block';
+                        overlay.style.left=center.x+'px';overlay.style.top=center.y+'px';
+                        overlay.style.width=(radius*2)+'px';overlay.style.height=(radius*2)+'px';
+                      }
+                      function send(){
+                        if(!center||radius<8)return;
+                        if(window.YBrowser&&window.YBrowser.onBrowserCircle){
+                          window.YBrowser.onBrowserCircle(center.x/Math.max(1,innerWidth),center.y/Math.max(1,innerHeight),radius/Math.max(1,innerWidth),radius/Math.max(1,innerHeight));
+                        }
                       }
                       function down(e){
-                        if(!window.__yCircleDrawing || (e.button!==undefined && e.button>0)) return;
-                        var p=coords(e);e.preventDefault();e.stopPropagation();
-                        start=p;overlay.style.display='block';
-                        overlay.style.left=p.x+'px';overlay.style.top=p.y+'px';
-                        overlay.style.width='0px';overlay.style.height='0px';
+                        if(!active||e.pointerType==='mouse'&&e.button!==0)return;
+                        e.preventDefault();e.stopPropagation();
+                        var p=point(e);pointers[e.pointerId]=p;
+                        try{document.documentElement.setPointerCapture&&document.documentElement.setPointerCapture(e.pointerId);}catch(_){}
+                        var ids=Object.keys(pointers);
+                        if(drawing){
+                          if(!first)first=p;
+                        }else if(ids.length===1){
+                          dragStart={point:p,center:{x:center.x,y:center.y}};
+                        }else if(ids.length===2){
+                          var a=pointers[ids[0]],b=pointers[ids[1]];
+                          pinchStart=Math.max(1,distance(a,b));pinchRadius=radius;dragStart=null;
+                        }
                       }
                       function move(e){
-                        if(!start)return;
-                        var p=coords(e);e.preventDefault();e.stopPropagation();
-                        var dx=p.x-start.x,dy=p.y-start.y;
-                        var diameter=Math.max(Math.abs(dx),Math.abs(dy));
-                        overlay.style.left=(start.x+dx/2)+'px';
-                        overlay.style.top=(start.y+dy/2)+'px';
-                        overlay.style.width=diameter+'px';overlay.style.height=diameter+'px';
+                        if(!active||!Object.prototype.hasOwnProperty.call(pointers,e.pointerId))return;
+                        e.preventDefault();e.stopPropagation();
+                        var p=point(e);pointers[e.pointerId]=p;
+                        var ids=Object.keys(pointers);
+                        if(drawing&&first){
+                          var d=distance(first,p);
+                          center={x:(first.x+p.x)/2,y:(first.y+p.y)/2};
+                          radius=d/2;paint();
+                        }else if(ids.length>=2){
+                          var a=pointers[ids[0]],b=pointers[ids[1]];
+                          radius=Math.max(8,pinchRadius*distance(a,b)/Math.max(1,pinchStart));paint();
+                        }else if(dragStart){
+                          center={x:dragStart.center.x+(p.x-dragStart.point.x),y:dragStart.center.y+(p.y-dragStart.point.y)};
+                          paint();
+                        }
                       }
                       function up(e){
-                        if(!start)return;
-                        var p=coords(e);e.preventDefault();e.stopPropagation();
-                        var dx=p.x-start.x,dy=p.y-start.y;
-                        var cx=(start.x+p.x)/2,cy=(start.y+p.y)/2;
-                        var radius=Math.max(Math.abs(dx),Math.abs(dy))/2;
-                        start=null;window.__yCircleDrawing=false;
-                        if(radius<20){overlay.style.display='none';return;}
-                        if(window.YBrowser && window.YBrowser.onBrowserCircle){
-                          window.YBrowser.onBrowserCircle(cx/Math.max(1,innerWidth),cy/Math.max(1,innerHeight),radius/Math.max(1,innerWidth),radius/Math.max(1,innerHeight));
+                        if(!Object.prototype.hasOwnProperty.call(pointers,e.pointerId))return;
+                        e.preventDefault();e.stopPropagation();
+                        delete pointers[e.pointerId];
+                        if(drawing&&first&&Object.keys(pointers).length===0){
+                          drawing=false;first=null;
+                          if(radius<12){overlay.style.display='none';center=null;return;}
+                          paint();send();
+                        }else if(!drawing){
+                          if(Object.keys(pointers).length<2){pinchStart=0;pinchRadius=radius;}
+                          if(Object.keys(pointers).length===0){dragStart=null;send();}
                         }
                       }
                       if(!window.__yCircleHandlers){
-                        if(window.PointerEvent){
-                          document.addEventListener('pointerdown',down,true);
-                          document.addEventListener('pointermove',move,true);
-                          document.addEventListener('pointerup',up,true);
-                          document.addEventListener('pointercancel',up,true);
-                        }else{
-                          document.addEventListener('touchstart',down,{capture:true,passive:false});
-                          document.addEventListener('touchmove',move,{capture:true,passive:false});
-                          document.addEventListener('touchend',up,{capture:true,passive:false});
-                          document.addEventListener('touchcancel',up,{capture:true,passive:false});
-                          document.addEventListener('mousedown',down,true);
-                          document.addEventListener('mousemove',move,true);
-                          document.addEventListener('mouseup',up,true);
-                        }
+                        document.addEventListener('pointerdown',down,true);
+                        document.addEventListener('pointermove',move,true);
+                        document.addEventListener('pointerup',up,true);
+                        document.addEventListener('pointercancel',up,true);
                         window.__yCircleHandlers=true;
                       }
+                      window.__yCircleDrawingActive=true;
                     })();
                 """.trimIndent()
                 browserView.evaluateJavascript(script, null)
