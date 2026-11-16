@@ -166,7 +166,6 @@ function chooseMark(mode){
 function videoPointFromClick(event){
  const source=activeSource();
  const rect=source.getBoundingClientRect();
- const source=activeSource();
  const vw=sourceWidth(),vh=sourceHeight();
  if(!vw||!vh)return null;
  const scale=Math.min(rect.width/vw,rect.height/vh);
