@@ -476,15 +476,6 @@ window.onBrowserCircle=function(cx,cy,rx,ry,rotation){
  try{localStorage.setItem('roulette-wheel-area-v1',JSON.stringify(wheelArea));}catch(e){}
 };
 try{const savedArea=JSON.parse(localStorage.getItem('roulette-wheel-area-v1')||'null');if(savedArea&&['cx','cy','rx','ry'].every(k=>Number.isFinite(savedArea[k]))){wheelArea=savedArea;if(!Number.isFinite(wheelArea.rotation))wheelArea.rotation=0;$('wheelAreaStatus').textContent='Círculo salvo · centro '+(wheelArea.cx*100).toFixed(1)+'% / '+(wheelArea.cy*100).toFixed(1)+'%';}}catch(e){}
-window.onBrowserMark=function(mode,x,y){
- if(!marks.hasOwnProperty(mode))return;
- marks[mode]={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};
- displayMark(mode);saveMarks();
- const label={center:'Centro da mesa registrado',ball:'Posição inicial da bola registrada',wheel:'Referência da roda registrada'};
- $('markStatus').textContent=label[mode]+'. Selecione a próxima marcação.';
- markingMode=null;
- ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
-};
 window.onNativeCaptureStarted=function(width,height){
  nativeCaptureActive=true;captureStream={native:true};
  screenVideo.pause();screenVideo.srcObject=null;screenVideo.style.display='none';nativeScreenImage.style.display='block';
