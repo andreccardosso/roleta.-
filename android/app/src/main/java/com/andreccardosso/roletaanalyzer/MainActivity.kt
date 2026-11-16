@@ -1,6 +1,10 @@
 package com.andreccardosso.roletaanalyzer
 
 import android.app.Activity
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
+import android.os.Build
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjection
@@ -32,6 +36,26 @@ class MainActivity : Activity() {
     private var imageThread: HandlerThread? = null
     private var imageHandler: Handler? = null
     private val frameBusy = AtomicBoolean(false)
+    private var pendingResultCode: Int = 0
+    private var pendingProjectionData: Intent? = null
+    private var captureService: CaptureForegroundService? = null
+    private var captureServiceBound = false
+
+    private val captureServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            captureService = (binder as CaptureForegroundService.LocalBinder).getService()
+            val data = pendingProjectionData
+            if (data != null) {
+                startProjection(pendingResultCode, data)
+                pendingProjectionData = null
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            captureService = null
+            captureServiceBound = false
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,10 +92,32 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 2026) {
             if (resultCode == Activity.RESULT_OK && data != null) {
-                startProjection(resultCode, data)
+                pendingResultCode = resultCode
+                pendingProjectionData = data
+                startCaptureForegroundService()
             } else {
                 webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Permissão de captura não concedida')", null)
             }
+        }
+    }
+
+    private fun startCaptureForegroundService() {
+        try {
+            val intent = Intent(this, CaptureForegroundService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            captureServiceBound = bindService(intent, captureServiceConnection, Context.BIND_AUTO_CREATE)
+            if (!captureServiceBound) {
+                throw IllegalStateException("Não foi possível conectar ao serviço de captura")
+            }
+        } catch (error: Exception) {
+            val detail = (error.message ?: error.javaClass.simpleName).replace("'", "")
+            pendingProjectionData = null
+            webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Falha ao iniciar serviço de captura: $detail')", null)
+            stopService(Intent(this, CaptureForegroundService::class.java))
         }
     }
 
@@ -158,6 +204,12 @@ class MainActivity : Activity() {
         imageHandler = null
         projection?.stop()
         projection = null
+        if (captureServiceBound) {
+            try { unbindService(captureServiceConnection) } catch (_: Exception) {}
+            captureServiceBound = false
+        }
+        captureService = null
+        stopService(Intent(this, CaptureForegroundService::class.java))
         webView.evaluateJavascript("window.onNativeCaptureStopped && window.onNativeCaptureStopped()", null)
     }
 
