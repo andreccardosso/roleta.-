@@ -171,8 +171,9 @@ class MainActivity : Activity() {
                         overlay.style.cssText='position:fixed;display:none;border:3px solid #ffd34e;border-radius:50%;background:rgba(255,211,78,.10);box-shadow:0 0 12px #ffd34e;transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;';
                         document.documentElement.appendChild(overlay);
                       }
-                      var active=true, drawing=true, pointers={}, center=null, radius=0;
-                      var first=null, dragStart=null, pinchStart=0, pinchRadius=0;
+                      var active=true, drawing=true, pointers={}, center=null, radius=0, rotation=0;
+                      var first=null, dragStart=null, pinchStart=0, pinchRadius=0, pinchAngle=0, pinchRotation=0;
+                      function angle(a,b){return Math.atan2(b.y-a.y,b.x-a.x);}
                       document.documentElement.style.touchAction='none';
                       function point(e){return {x:e.clientX,y:e.clientY};}
                       function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
@@ -180,12 +181,13 @@ class MainActivity : Activity() {
                         if(!center)return;
                         overlay.style.display='block';
                         overlay.style.left=center.x+'px';overlay.style.top=center.y+'px';
-                        overlay.style.width=(radius*2)+'px';overlay.style.height=(radius*2)+'px';
+                        overlay.style.width=(radius*2)+'px';overlay.style.height=(radius*1.44)+'px';
+                         overlay.style.transform='translate(-50%,-50%) rotate('+rotation+'rad)';
                       }
                       function send(){
                         if(!center||radius<8)return;
                         if(window.YBrowser&&window.YBrowser.onBrowserCircle){
-                          window.YBrowser.onBrowserCircle(center.x/Math.max(1,innerWidth),center.y/Math.max(1,innerHeight),radius/Math.max(1,innerWidth),radius/Math.max(1,innerHeight));
+                          window.YBrowser.onBrowserCircle(center.x/Math.max(1,innerWidth),center.y/Math.max(1,innerHeight),radius/Math.max(1,innerWidth),radius*.72/Math.max(1,innerHeight),rotation);
                         }
                       }
                       function down(e){
@@ -200,7 +202,7 @@ class MainActivity : Activity() {
                           dragStart={point:p,center:{x:center.x,y:center.y}};
                         }else if(ids.length===2){
                           var a=pointers[ids[0]],b=pointers[ids[1]];
-                          pinchStart=Math.max(1,distance(a,b));pinchRadius=radius;dragStart=null;
+                          pinchStart=Math.max(1,distance(a,b));pinchRadius=radius;pinchAngle=angle(a,b);pinchRotation=rotation;dragStart=null;
                         }
                       }
                       function move(e){
@@ -214,7 +216,8 @@ class MainActivity : Activity() {
                           radius=d/2;paint();
                         }else if(ids.length>=2){
                           var a=pointers[ids[0]],b=pointers[ids[1]];
-                          radius=Math.max(8,pinchRadius*distance(a,b)/Math.max(1,pinchStart));paint();
+                          radius=Math.max(8,pinchRadius*distance(a,b)/Math.max(1,pinchStart));
+                           rotation=pinchRotation+(angle(a,b)-pinchAngle);paint();
                         }else if(dragStart){
                           center={x:dragStart.center.x+(p.x-dragStart.point.x),y:dragStart.center.y+(p.y-dragStart.point.y)};
                           paint();
