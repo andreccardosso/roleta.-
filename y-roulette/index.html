@@ -115,18 +115,18 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <h2>Marcar a área da roleta</h2>
  <p class="hint">Toque no botão e contorne a roleta na tela grande. Depois use dois dedos como pinça para ajustar o tamanho e arraste com um dedo para centralizar. O zoom da página fica bloqueado.</p>
  <div class="row"><button class="primary" id="markWheelArea">Desenhar círculo da roleta</button><span class="status" id="wheelAreaStatus">Área ainda não marcada</span></div>
+  <div class="row" style="margin-top:10px"><button class="primary" id="startTracking">Iniciar rastreio automático</button><button id="stopTracking" disabled>Parar rastreio</button></div>
+  <p class="hint">Depois de marcar a roda e iniciar a captura, o rastreio procura o setor verde (zero) e a bolinha automaticamente.</p>
 </section>
 <details class="setup"><summary>Configuração das marcações visuais</summary>
 <section class="panel" id="visualCalibration">
  <h2>Calibração visual inicial</h2>
- <p class="hint">Com a captura ativa, marque três referências diretamente no vídeo. Escolha um ponto e toque nele na imagem: centro fixo da mesa, posição da bola e um detalhe identificável da roda. Essas marcações são pontos iniciais para o rastreamento; ainda não representam velocidades medidas.</p>
+ <p class="hint">As marcações manuais antigas ficam aqui apenas como referência; o rastreio automático não depende delas.</p>
  <div class="row">
   <button id="markCenter">Marcar centro da mesa</button>
   <button id="markBall">Marcar posição da bola</button>
   <button id="markWheel">Marcar referência da roda</button>
   <button id="clearMarks">Limpar marcações</button>
-  <button class="primary" id="startTracking">Iniciar rastreamento</button>
-  <button id="stopTracking" disabled>Parar rastreamento</button>
  </div>
  <div class="grid" style="margin-top:12px">
   <div class="metric"><div class="name">Centro da mesa</div><div class="detail" id="centerMark">Não marcado</div></div>
@@ -416,7 +416,52 @@ function matchPatch(data,w,h,template,previous){
  }
  return {x:bestX,y:bestY,confidence:best};
 }
-function trackingStatus(text){$('markStatus').textContent=text;}
+function trackingStatus(text){$('wheelAreaStatus').textContent=text;}
+function ellipseCoordinates(x,y){
+ const a=wheelArea;if(!a)return null;
+ const cx=a.cx*trackingCanvas.width,cy=a.cy*trackingCanvas.height;
+ const rx=Math.max(8,a.rx*trackingCanvas.width),ry=Math.max(8,a.ry*trackingCanvas.height);
+ const angle=Number(a.rotation||0),dx=x-cx,dy=y-cy,ca=Math.cos(angle),sa=Math.sin(angle);
+ const ex=dx*ca+dy*sa,ey=-dx*sa+dy*ca;
+ return {radius:Math.hypot(ex/rx,ey/ry),cx,cy,rx,ry};
+}
+function detectGreenZero(data,w,h){
+ if(!wheelArea)return null;
+ let sx=0,sy=0,weight=0,count=0;
+ for(let y=2;y<h-2;y+=2)for(let x=2;x<w-2;x+=2){
+  const p=ellipseCoordinates(x,y);if(!p||p.radius<0.38||p.radius>0.98)continue;
+  const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2];
+  if(g>62&&g>r*1.38&&g>b*1.18&&g-r>32){const wt=Math.max(1,g-r);sx+=x*wt;sy+=y*wt;weight+=wt;count++;}
+ }
+ if(count<5||count>1800)return null;
+ return {x:sx/weight,y:sy/weight,confidence:Math.min(1,count/35),pixels:count};
+}
+function detectWhiteBall(data,w,h,previous){
+ if(!wheelArea)return null;
+ const step=2,gw=Math.ceil(w/step),gh=Math.ceil(h/step),mask=new Uint8Array(gw*gh);
+ for(let gy=1;gy<gh-1;gy++)for(let gx=1;gx<gw-1;gx++){
+  const x=gx*step,y=gy*step,p=ellipseCoordinates(x,y);
+  if(!p||p.radius<0.76||p.radius>1.22)continue;
+  const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2],hi=Math.max(r,g,b),lo=Math.min(r,g,b);
+  if(hi>188&&hi-lo<58&&((r+g+b)/3)>190)mask[gy*gw+gx]=1;
+ }
+ const seen=new Uint8Array(mask.length);let best=null,bestScore=-1;
+ for(let i=0;i<mask.length;i++){
+  if(!mask[i]||seen[i])continue;
+  const stack=[i];seen[i]=1;let n=0,sx=0,sy=0;
+  while(stack.length){
+   const q=stack.pop(),gx=q%gw,gy=(q/gw)|0;n++;sx+=gx;sy+=gy;
+   for(let yy=Math.max(0,gy-1);yy<=Math.min(gh-1,gy+1);yy++)for(let xx=Math.max(0,gx-1);xx<=Math.min(gw-1,gx+1);xx++){
+    const z=yy*gw+xx;if(mask[z]&&!seen[z]){seen[z]=1;stack.push(z);}
+   }
+  }
+  if(n<1||n>45)continue;
+  const x=sx/n*step,y=sy/n*step;
+  const score=previous?n*2-Math.hypot(x-previous.x,y-previous.y)*0.035:n-Math.abs(n-8)*0.12;
+  if(score>bestScore){bestScore=score;best={x,y,confidence:Math.min(1,n/8),pixels:n};}
+ }
+ return best;
+}
 function stopTracking(){
  tracking=false;
  if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(-1,-1);
@@ -427,90 +472,64 @@ function stopTracking(){
 }
 function trackingFrame(now){
  if(!tracking||!captureStream||(!nativeCaptureActive&&screenVideo.paused))return;
- if(trackingFrameBusy)return;
- trackingFrameBusy=true;
+ if(trackingFrameBusy)return;trackingFrameBusy=true;
  try{
-  const source=activeSource();
-  const vw=sourceWidth(),vh=sourceHeight();
+  const source=activeSource(),vw=sourceWidth(),vh=sourceHeight();
   if(nativeCaptureActive&&(!source.complete||!source.naturalWidth))return;
   if(!vw||!vh)throw new Error('Vídeo sem dimensões.');
   const scale=Math.min(1,720/vw);
-  trackingCanvas.width=Math.max(1,Math.round(vw*scale));
-  trackingCanvas.height=Math.max(1,Math.round(vh*scale));
+  trackingCanvas.width=Math.max(1,Math.round(vw*scale));trackingCanvas.height=Math.max(1,Math.round(vh*scale));
   trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
-  const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
-  const dt=previousTrackTime===null?0:(now-previousTrackTime)/1000;
-  if(templates.ball&&tracked.ball){
-   const m=matchPatch(frame.data,trackingCanvas.width,trackingCanvas.height,templates.ball,tracked.ball);
-   if(m&&m.confidence>=0.72){
-    if(dt>0){const dx=m.x-tracked.ball.x,dy=m.y-tracked.ball.y;ballPixelSpeed=Math.hypot(dx,dy)/dt;}
-    tracked.ball=m;
-    const updatedBall=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,{x:m.x/trackingCanvas.width,y:m.y/trackingCanvas.height});
-    if(updatedBall)templates.ball=updatedBall;
-    if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(m.x/trackingCanvas.width,m.y/trackingCanvas.height);
-    $('ballSpeed').textContent=ballPixelSpeed===null?'Calculando…':(ballPixelSpeed/scale).toFixed(0)+' px/s';
-    $('ballState').textContent='Referência localizada · confiança '+(m.confidence*100).toFixed(0)+'%';
-   }else{$('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Referência da bola perdida ou com baixa confiança.';ballPixelSpeed=null;}
-  }
-  if(templates.wheel&&tracked.wheel&&marks.center){
-   const m=matchPatch(frame.data,trackingCanvas.width,trackingCanvas.height,templates.wheel,tracked.wheel);
-   if(m&&m.confidence>=0.72){
-    const c=normalizedToCanvas(marks.center);
-    const angle=Math.atan2(m.y-c.y,m.x-c.x);
-    if(wheelAnglePrevious!==null&&dt>0){
-     let delta=angle-wheelAnglePrevious;
-     while(delta>Math.PI)delta-=2*Math.PI;
-     while(delta< -Math.PI)delta+=2*Math.PI;
-     wheelAngleAccum+=delta;
-     wheelRpm=(delta/dt)*60/(2*Math.PI);
-     $('wheelSpeed').textContent=(wheelRpm*1).toFixed(1)+' RPM';
-    }else $('wheelSpeed').textContent='Calculando…';
-    wheelAnglePrevious=angle;tracked.wheel=m;
-    const updatedWheel=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,{x:m.x/trackingCanvas.width,y:m.y/trackingCanvas.height});
-    if(updatedWheel)templates.wheel=updatedWheel;
-    $('wheelState').textContent='Referência localizada · confiança '+(m.confidence*100).toFixed(0)+'%';
-   }else{$('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Referência da roda perdida ou com baixa confiança.';wheelAnglePrevious=null;}
-  }
+  const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height),dt=previousTrackTime===null?0:(now-previousTrackTime)/1000;
+  const green=detectGreenZero(frame.data,trackingCanvas.width,trackingCanvas.height);
+  if(green){
+   const angle=Math.atan2(green.y-wheelArea.cy*trackingCanvas.height,green.x-wheelArea.cx*trackingCanvas.width);
+   if(wheelAnglePrevious!==null&&dt>0){
+    let delta=angle-wheelAnglePrevious;while(delta>Math.PI)delta-=2*Math.PI;while(delta< -Math.PI)delta+=2*Math.PI;
+    wheelRpm=(delta/dt)*60/(2*Math.PI);$('wheelSpeed').textContent=Math.abs(wheelRpm).toFixed(1)+' RPM';
+   }else $('wheelSpeed').textContent='Calculando…';
+   wheelAnglePrevious=angle;$('wheelState').textContent='Zero verde detectado · '+green.pixels+' pixels';
+  }else{$('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Não encontrei o setor verde dentro da área marcada.';wheelAnglePrevious=null;}
+  const ball=detectWhiteBall(frame.data,trackingCanvas.width,trackingCanvas.height,tracked.ball);
+  if(ball){
+   if(tracked.ball&&dt>0)ballPixelSpeed=Math.hypot(ball.x-tracked.ball.x,ball.y-tracked.ball.y)/dt;
+   tracked.ball=ball;
+   if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(ball.x/trackingCanvas.width,ball.y/trackingCanvas.height);
+   $('ballSpeed').textContent=ballPixelSpeed===null?'Calculando…':(ballPixelSpeed/scale).toFixed(0)+' px/s';
+   $('ballState').textContent='Bolinha detectada · confiança '+(ball.confidence*100).toFixed(0)+'%';
+  }else{$('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Bolinha não localizada na borda da área marcada.';ballPixelSpeed=null;}
   previousTrackTime=now;
  }catch(e){
-  $('ballSpeed').textContent='Sem leitura';
-  $('ballState').textContent='Não foi possível processar este quadro.';
-  $('wheelSpeed').textContent='Sem leitura';
-  $('wheelState').textContent='Não foi possível processar este quadro.';
+  $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Falha ao analisar o quadro.';
+  $('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Falha ao analisar o quadro.';
  }finally{trackingFrameBusy=false;}
  if(tracking&&!nativeCaptureActive&&typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
 }
 function startTracking(){
  const source=activeSource();
- if(!captureStream||(!nativeCaptureActive&&screenVideo.readyState<2)||(nativeCaptureActive&&(!source.complete||!source.naturalWidth))){trackingStatus('Primeiro capture a tela com o vídeo da roleta.');return;}
- if(!marks.center||!marks.ball||!marks.wheel){trackingStatus('Marque o centro, a bola e uma referência da roda antes de iniciar.');return;}
- const vw=sourceWidth(),vh=sourceHeight();
- const scale=Math.min(1,720/vw);
- trackingCanvas.width=Math.max(1,Math.round(vw*scale));
- trackingCanvas.height=Math.max(1,Math.round(vh*scale));
+ if(!captureStream||(!nativeCaptureActive&&screenVideo.readyState<2)||(nativeCaptureActive&&(!source.complete||!source.naturalWidth))){trackingStatus('Primeiro toque em Compartilhar tela para iniciar a captura.');return;}
+ if(!wheelArea){trackingStatus('Primeiro desenhe e alinhe a área da roleta na tela do navegador.');return;}
+ const vw=sourceWidth(),vh=sourceHeight(),scale=Math.min(1,720/vw);
+ trackingCanvas.width=Math.max(1,Math.round(vw*scale));trackingCanvas.height=Math.max(1,Math.round(vh*scale));
  trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
- const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
- templates.ball=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,marks.ball);
- templates.wheel=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,marks.wheel);
- if(!templates.ball||!templates.wheel){trackingStatus('As marcações precisam ficar afastadas das bordas do vídeo.');return;}
- tracked.ball={x:templates.ball.x,y:templates.ball.y};
- tracked.wheel={x:templates.wheel.x,y:templates.wheel.y};
- previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;
+ trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
+ tracked.ball=null;previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;
  tracking=true;$('startTracking').disabled=true;$('stopTracking').disabled=false;
- $('ballSpeed').textContent='Calculando…';$('wheelSpeed').textContent='Calculando…';
- $('ballState').textContent='Procurando a referência da bola…';$('wheelState').textContent='Procurando a referência da roda…';
- if(typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
- else{stopTracking();trackingStatus('Este navegador não oferece processamento de quadros necessário ao rastreamento.');}
+ $('ballSpeed').textContent='Procurando…';$('wheelSpeed').textContent='Procurando…';
+ $('ballState').textContent='Detectando a bolinha automaticamente…';$('wheelState').textContent='Detectando o zero verde automaticamente…';
+ if(nativeCaptureActive)trackingFrame(performance.now());
+ else if(typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
+ else{stopTracking();trackingStatus('Este navegador não oferece processamento de quadros.');}
 }
 $('startTracking').addEventListener('click',startTracking);
 $('stopTracking').addEventListener('click',stopTracking);
 
-window.onBrowserCircle=function(cx,cy,rx,ry){
- wheelArea={cx,cy,rx,ry};
+window.onBrowserCircle=function(cx,cy,rx,ry,rotation){
+ wheelArea={cx,cy,rx,ry,rotation:Number(rotation||0)};
  $('wheelAreaStatus').textContent='Círculo registrado · centro '+(cx*100).toFixed(1)+'% / '+(cy*100).toFixed(1)+'%';
  try{localStorage.setItem('roulette-wheel-area-v1',JSON.stringify(wheelArea));}catch(e){}
 };
-try{const savedArea=JSON.parse(localStorage.getItem('roulette-wheel-area-v1')||'null');if(savedArea&&['cx','cy','rx','ry'].every(k=>Number.isFinite(savedArea[k]))){wheelArea=savedArea;$('wheelAreaStatus').textContent='Círculo salvo · centro '+(wheelArea.cx*100).toFixed(1)+'% / '+(wheelArea.cy*100).toFixed(1)+'%';}}catch(e){}
+try{const savedArea=JSON.parse(localStorage.getItem('roulette-wheel-area-v1')||'null');if(savedArea&&['cx','cy','rx','ry'].every(k=>Number.isFinite(savedArea[k]))){wheelArea=savedArea;if(!Number.isFinite(wheelArea.rotation))wheelArea.rotation=0;$('wheelAreaStatus').textContent='Círculo salvo · centro '+(wheelArea.cx*100).toFixed(1)+'% / '+(wheelArea.cy*100).toFixed(1)+'%';}}catch(e){}
 window.onBrowserMark=function(mode,x,y){
  if(!marks.hasOwnProperty(mode))return;
  marks[mode]={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};
