@@ -512,19 +512,35 @@ class MainActivity : Activity() {
     private fun deliverFrame(bitmap: Bitmap) {
         try {
             val output = ByteArrayOutputStream()
-            val scaled = if (bitmap.width > 720) Bitmap.createScaledBitmap(bitmap, 720, (bitmap.height * 720f / bitmap.width).toInt().coerceAtLeast(1), true) else bitmap
+            val scaled = if (bitmap.width > 720) {
+                Bitmap.createScaledBitmap(bitmap, 720,
+                    (bitmap.height * 720f / bitmap.width).toInt().coerceAtLeast(1), true)
+            } else bitmap
             scaled.compress(Bitmap.CompressFormat.JPEG, 55, output)
             val encoded = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
             val width = scaled.width
             val height = scaled.height
             if (scaled !== bitmap) scaled.recycle()
             val js = "window.onNativeFrame && window.onNativeFrame('data:image/jpeg;base64,$encoded',$width,$height)"
-            analyzerView.evaluateJavascript(js, null)
+            // WebView só pode ser acessado pela thread principal.
+            runOnUiThread {
+                try {
+                    if (::analyzerView.isInitialized && capturing) {
+                        analyzerView.evaluateJavascript(js, null)
+                    }
+                } catch (_: Exception) {
+                    captureStatus.text = "ANÁLISE: erro ao enviar quadro"
+                } finally {
+                    bitmap.recycle()
+                    captureBusy = false
+                }
+            }
         } catch (_: Exception) {
-            analyzerError("Falha ao preparar imagem do navegador.")
-        } finally {
             bitmap.recycle()
-            captureBusy = false
+            runOnUiThread {
+                analyzerError("Falha ao preparar imagem do navegador.")
+                captureBusy = false
+            }
         }
     }
 
