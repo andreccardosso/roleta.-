@@ -180,6 +180,10 @@ function displayMark(key){
 }
 function chooseMark(mode){
  markingMode=mode;
+ if(window.AndroidCapture&&typeof window.AndroidCapture.setMark==='function'){
+  window.AndroidCapture.setMark(mode);
+  $('markStatus').textContent='Toque no ponto correspondente na tela grande do navegador.';
+ }
  ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
  const button={center:'markCenter',ball:'markBall',wheel:'markWheel'}[mode];
  $(button).classList.add('markActive');
@@ -219,6 +223,7 @@ function clearMarks(){
  $('markStatus').textContent='Marcações apagadas. Faça novamente a calibração no vídeo.';
 }
 function handleVideoMarkClick(event){
+ if(window.AndroidCapture)return;
  if(!markingMode)return;
  const point=videoPointFromClick(event);
  if(!point){$('markStatus').textContent='Toque dentro da imagem do vídeo, não nas bordas pretas.';return;}
@@ -377,7 +382,7 @@ function captureTemplate(data,w,h,p){
  return {values:grayPatch(data,w,q.x,q.y,r),x:q.x,y:q.y,r};
 }
 function matchPatch(data,w,h,template,previous){
- const r=template.r, search=48, step=2;
+ const r=template.r, search=120, step=3;
  let best=-2,bestX=previous.x,bestY=previous.y;
  const t=template.values, n=t.length;
  let meanT=t.reduce((a,b)=>a+b,0)/n;
@@ -398,6 +403,7 @@ function matchPatch(data,w,h,template,previous){
 function trackingStatus(text){$('markStatus').textContent=text;}
 function stopTracking(){
  tracking=false;
+ if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(-1,-1);
  if(trackingCallbackId!==null && typeof screenVideo.cancelVideoFrameCallback==='function')screenVideo.cancelVideoFrameCallback(trackingCallbackId);
  trackingCallbackId=null;
  $('startTracking').disabled=false;
@@ -423,6 +429,9 @@ function trackingFrame(now){
    if(m&&m.confidence>=0.72){
     if(dt>0){const dx=m.x-tracked.ball.x,dy=m.y-tracked.ball.y;ballPixelSpeed=Math.hypot(dx,dy)/dt;}
     tracked.ball=m;
+    const updatedBall=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,{x:m.x/trackingCanvas.width,y:m.y/trackingCanvas.height});
+    if(updatedBall)templates.ball=updatedBall;
+    if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(m.x/trackingCanvas.width,m.y/trackingCanvas.height);
     $('ballSpeed').textContent=ballPixelSpeed===null?'Calculando…':(ballPixelSpeed/scale).toFixed(0)+' px/s';
     $('ballState').textContent='Referência localizada · confiança '+(m.confidence*100).toFixed(0)+'%';
    }else{$('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Referência da bola perdida ou com baixa confiança.';ballPixelSpeed=null;}
@@ -441,6 +450,8 @@ function trackingFrame(now){
      $('wheelSpeed').textContent=(wheelRpm*1).toFixed(1)+' RPM';
     }else $('wheelSpeed').textContent='Calculando…';
     wheelAnglePrevious=angle;tracked.wheel=m;
+    const updatedWheel=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,{x:m.x/trackingCanvas.width,y:m.y/trackingCanvas.height});
+    if(updatedWheel)templates.wheel=updatedWheel;
     $('wheelState').textContent='Referência localizada · confiança '+(m.confidence*100).toFixed(0)+'%';
    }else{$('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Referência da roda perdida ou com baixa confiança.';wheelAnglePrevious=null;}
   }
@@ -478,6 +489,15 @@ function startTracking(){
 $('startTracking').addEventListener('click',startTracking);
 $('stopTracking').addEventListener('click',stopTracking);
 
+window.onBrowserMark=function(mode,x,y){
+ if(!marks.hasOwnProperty(mode))return;
+ marks[mode]={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};
+ displayMark(mode);saveMarks();
+ const label={center:'Centro da mesa registrado',ball:'Posição inicial da bola registrada',wheel:'Referência da roda registrada'};
+ $('markStatus').textContent=label[mode]+'. Selecione a próxima marcação.';
+ markingMode=null;
+ ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
+};
 window.onNativeCaptureStarted=function(width,height){
  nativeCaptureActive=true;captureStream={native:true};
  screenVideo.pause();screenVideo.srcObject=null;screenVideo.style.display='none';nativeScreenImage.style.display='block';
