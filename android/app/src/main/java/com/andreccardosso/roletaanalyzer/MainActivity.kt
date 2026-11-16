@@ -332,14 +332,15 @@ class MainActivity : Activity() {
 
     inner class BrowserPageBridge {
         @JavascriptInterface
-        fun onBrowserCircle(cx: Double, cy: Double, rx: Double, ry: Double) {
+        fun onBrowserCircle(cx: Double, cy: Double, rx: Double, ry: Double, rotation: Double) {
             runOnUiThread {
                 val safeCx = cx.coerceIn(0.0, 1.0)
                 val safeCy = cy.coerceIn(0.0, 1.0)
                 val safeRx = rx.coerceIn(0.0, 0.5)
                 val safeRy = ry.coerceIn(0.0, 0.5)
+                val safeRotation = rotation.coerceIn(-3.14159, 3.14159)
                 analyzerView.evaluateJavascript(
-                    "window.onBrowserCircle && window.onBrowserCircle($safeCx,$safeCy,$safeRx,$safeRy)", null
+                    "window.onBrowserCircle && window.onBrowserCircle($safeCx,$safeCy,$safeRx,$safeRy,$safeRotation)", null
                 )
             }
         }
