@@ -74,6 +74,12 @@ class MainActivity : Activity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
+            settings.userAgentString = settings.userAgentString
+                .replace("; wv)", ")")
+                .replace("Version/4.0 ", "")
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            settings.allowContentAccess = true
+            settings.allowFileAccess = false
             settings.loadsImagesAutomatically = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.javaScriptCanOpenWindowsAutomatically = true
