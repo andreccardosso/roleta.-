@@ -129,6 +129,10 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
   <button id="stopTracking" disabled>Parar rastreamento</button>
  </div>
  <div class="grid" style="margin-top:12px">
+  <div class="metric"><div class="name">Ajuste oval · inclinação</div><input id="ellipseTilt" type="range" min="-25" max="25" value="0" step="1"><div class="detail">Incline a área para alinhar a roleta.</div></div>
+  <div class="metric"><div class="name">Ajuste oval · altura</div><input id="ellipseHeight" type="range" min="65" max="140" value="100" step="1"><div class="detail">Alongue ou comprima o círculo na vertical.</div></div>
+ </div>
+ <div class="grid" style="margin-top:12px">
   <div class="metric"><div class="name">Centro da mesa</div><div class="detail" id="centerMark">Não marcado</div></div>
   <div class="metric"><div class="name">Posição inicial da bola</div><div class="detail" id="ballMark">Não marcada</div></div>
   <div class="metric"><div class="name">Referência da roda</div><div class="detail" id="wheelMark">Não marcada</div></div>
@@ -417,14 +421,19 @@ function matchPatch(data,w,h,template,previous){
  return {x:bestX,y:bestY,confidence:best};
 }
 function trackingStatus(text){$('markStatus').textContent=text;}
+let ellipseTilt=0,ellipseHeight=1;
+$('ellipseTilt').addEventListener('input',e=>ellipseTilt=Number(e.target.value)*Math.PI/180);
+$('ellipseHeight').addEventListener('input',e=>ellipseHeight=Number(e.target.value)/100);
 function detectColorPoint(data,w,h,area,kind,previous){
  if(!area)return null;
- const cx=area.cx*w,cy=area.cy*h,rx=Math.max(8,area.rx*w),ry=Math.max(8,area.ry*h);
+ const cx=area.cx*w,cy=area.cy*h,rx=Math.max(8,area.rx*w),ry=Math.max(8,area.ry*h)*ellipseHeight;
+ const cos=Math.cos(ellipseTilt),sin=Math.sin(ellipseTilt);
  let sx=0,sy=0,count=0,best=null,bestScore=0;
  const step=2;
  for(let y=Math.max(1,Math.floor(cy-ry));y<Math.min(h-1,cy+ry);y+=step){
   for(let x=Math.max(1,Math.floor(cx-rx));x<Math.min(w-1,cx+rx);x+=step){
-   const nx=(x-cx)/rx,ny=(y-cy)/ry,r=Math.hypot(nx,ny);
+   const dx=x-cx,dy=y-cy;
+   const nx=(dx*cos+dy*sin)/rx,ny=(-dx*sin+dy*cos)/ry,r=Math.hypot(nx,ny);
    if(r<0.42||r>1.08)continue;
    const i=(y*w+x)*4,R=data[i],G=data[i+1],B=data[i+2];
    let ok=false;
