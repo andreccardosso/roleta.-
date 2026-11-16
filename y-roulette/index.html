@@ -116,26 +116,9 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <p class="hint">Toque no botão e contorne a roleta na tela grande. Depois use dois dedos como pinça para ajustar o tamanho e arraste com um dedo para centralizar. O zoom da página fica bloqueado.</p>
  <div class="row"><button class="primary" id="markWheelArea">Desenhar círculo da roleta</button><span class="status" id="wheelAreaStatus">Área ainda não marcada</span></div>
   <div class="row" style="margin-top:10px"><button class="primary" id="startTracking">Iniciar rastreio automático</button><button id="stopTracking" disabled>Parar rastreio</button></div>
-  <p class="hint">Depois de marcar a roda e iniciar a captura, o rastreio procura o setor verde (zero) e a bolinha automaticamente.</p>
+  <p class="hint">Marque a área oval da roleta e toque em iniciar. O analisador tentará localizar o zero verde e a bolinha sem marcações manuais.</p>
 </section>
-<details class="setup"><summary>Configuração das marcações visuais</summary>
-<section class="panel" id="visualCalibration">
- <h2>Calibração visual inicial</h2>
- <p class="hint">As marcações manuais antigas ficam aqui apenas como referência; o rastreio automático não depende delas.</p>
- <div class="row">
-  <button id="markCenter">Marcar centro da mesa</button>
-  <button id="markBall">Marcar posição da bola</button>
-  <button id="markWheel">Marcar referência da roda</button>
-  <button id="clearMarks">Limpar marcações</button>
- </div>
- <div class="grid" style="margin-top:12px">
-  <div class="metric"><div class="name">Centro da mesa</div><div class="detail" id="centerMark">Não marcado</div></div>
-  <div class="metric"><div class="name">Posição inicial da bola</div><div class="detail" id="ballMark">Não marcada</div></div>
-  <div class="metric"><div class="name">Referência da roda</div><div class="detail" id="wheelMark">Não marcada</div></div>
-  <div class="metric"><div class="name">Próxima ação</div><div class="detail" id="markStatus">Ative a captura e escolha uma marcação.</div></div>
- </div>
-</section>
-</details>
+
 
 
 
@@ -155,6 +138,12 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <p class="hint">Ordem física da roleta europeia. Esta grade é apenas uma referência visual; não indica resultado, setor provável ou previsão.</p>
 </section>
 
+<section class="panel" id="regionPanel">
+ <h2>Região experimental · 13 números</h2>
+ <div class="metric"><div class="name">Número central estimado</div><div class="value" id="regionCenter">Aguardando rastreio</div><div class="detail" id="regionStatus">Aguardando detecção simultânea do zero verde e da bolinha.</div></div>
+ <div class="numberBoard" id="predictedRegion" style="margin-top:10px"></div>
+ <p class="hint">Faixa exploratória: número central e seis vizinhos de cada lado na ordem europeia. Não é previsão garantida; depende da detecção visual e do alinhamento da roda.</p>
+</section>
 <section class="panel">
  <h2>Análise dos movimentos</h2>
  <div class="grid">
@@ -184,77 +173,11 @@ function sourceWidth(){return nativeCaptureActive ? nativeScreenImage.naturalWid
 function sourceHeight(){return nativeCaptureActive ? nativeScreenImage.naturalHeight : screenVideo.videoHeight;}
 
 let wheelArea = null;
-let markingMode = null;
-const marks = {center:null, ball:null, wheel:null};
-function displayMark(key){
- const el = $(key+'Mark'), point=marks[key];
- el.textContent = point ? (point.x*100).toFixed(1)+'% horizontal · '+(point.y*100).toFixed(1)+'% vertical' : 'Não marcado';
-}
-function chooseMark(mode){
- markingMode=mode;
- if(window.AndroidCapture&&typeof window.AndroidCapture.setMark==='function'){
-  window.AndroidCapture.setMark(mode);
-  $('markStatus').textContent='Toque no ponto correspondente na tela grande do navegador.';
- }
- ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
- const button={center:'markCenter',ball:'markBall',wheel:'markWheel'}[mode];
- $(button).classList.add('markActive');
- $('markStatus').textContent='Toque no vídeo para registrar '+({center:'o centro fixo da mesa',ball:'a posição inicial da bola',wheel:'um detalhe visual da roda'}[mode])+'.';
- screenVideo.style.cursor='crosshair';
-}
-function videoPointFromClick(event){
- const source=activeSource();
- const rect=source.getBoundingClientRect();
- const vw=sourceWidth(),vh=sourceHeight();
- if(!vw||!vh)return null;
- const scale=Math.min(rect.width/vw,rect.height/vh);
- const shownW=vw*scale,shownH=vh*scale;
- const left=rect.left+(rect.width-shownW)/2,top=rect.top+(rect.height-shownH)/2;
- const px=event.clientX-left,py=event.clientY-top;
- if(px<0||py<0||px>shownW||py>shownH)return null;
- return {x:px/shownW,y:py/shownH};
-}
-function saveMarks(){
- try{localStorage.setItem('roulette-video-marks-v1',JSON.stringify(marks));}catch(e){}
-}
-function restoreMarks(){
- try{
-  const saved=JSON.parse(localStorage.getItem('roulette-video-marks-v1')||'{}');
-  ['center','ball','wheel'].forEach(k=>{
-   const p=saved[k];
-   if(p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1)marks[k]=p;
-   displayMark(k);
-  });
- }catch(e){}
-}
-function clearMarks(){
- marks.center=null;marks.ball=null;marks.wheel=null;
- ['center','ball','wheel'].forEach(displayMark);
- saveMarks();markingMode=null;screenVideo.style.cursor='default';
- ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
- $('markStatus').textContent='Marcações apagadas. Faça novamente a calibração no vídeo.';
-}
-function handleVideoMarkClick(event){
- if(window.AndroidCapture)return;
- if(!markingMode)return;
- const point=videoPointFromClick(event);
- if(!point){$('markStatus').textContent='Toque dentro da imagem do vídeo, não nas bordas pretas.';return;}
- marks[markingMode]=point;
- displayMark(markingMode);saveMarks();
- const label={center:'Centro da mesa registrado',ball:'Posição inicial da bola registrada',wheel:'Referência da roda registrada'};
- $('markStatus').textContent=label[markingMode]+'. Escolha outra marcação ou aguarde a próxima etapa.';
- markingMode=null;screenVideo.style.cursor='default';
- ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
-}
-screenVideo.addEventListener('click',handleVideoMarkClick);
-nativeScreenImage.addEventListener('click',handleVideoMarkClick);
-$('markCenter').addEventListener('click',()=>chooseMark('center'));
-$('markBall').addEventListener('click',()=>chooseMark('ball'));
-$('markWheel').addEventListener('click',()=>chooseMark('wheel'));
-$('clearMarks').addEventListener('click',clearMarks);
 $('markWheelArea').addEventListener('click',()=>{
- if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){window.AndroidCapture.setCircleMark();$('wheelAreaStatus').textContent='Contorne a roleta; depois ajuste com pinça e arraste para alinhar.';}
- else $('wheelAreaStatus').textContent='A marcação circular está disponível no APK Android.';
+ if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){
+  window.AndroidCapture.setCircleMark();
+  $('wheelAreaStatus').textContent='Contorne a roleta; ajuste com pinça e arraste para centralizar.';
+ }else $('wheelAreaStatus').textContent='A marcação oval está disponível no APK Android.';
 });
 
 let captureStream = null;
@@ -380,6 +303,19 @@ let wheelAnglePrevious = null;
 let wheelAngleAccum = 0;
 let wheelRpm = null;
 let trackingFrameBusy = false;
+const europeanWheel=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+function showPossibleRegion(centerIndex,confidence){
+ const center=((centerIndex%37)+37)%37,dir=wheelRpm!==null&&wheelRpm<0?-1:1;
+ const indices=[];for(let offset=-6;offset<=6;offset++)indices.push(europeanWheel[(center+offset*dir+370)%37]);
+ $('regionCenter').textContent=String(europeanWheel[center]);
+ $('regionStatus').textContent='Centro calculado pela posição angular relativa · confiança visual '+Math.round(confidence*100)+'% · experimental';
+ $('predictedRegion').innerHTML=indices.map((n,i)=>'<div class="pocket '+(n===0?'green':([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36].includes(n)?'red':'black'))+'" style="'+(i===6?'outline:2px solid #f3d58d;':'')+'">'+n+'</div>').join('');
+}
+function clearPossibleRegion(message){
+ $('regionCenter').textContent='—';$('regionStatus').textContent=message||'Aguardando detecção simultânea do zero verde e da bolinha.';
+ $('predictedRegion').innerHTML='';
+}
+
 
 function normalizedToCanvas(p){
  return {x:Math.round(p.x*trackingCanvas.width),y:Math.round(p.y*trackingCanvas.height)};
@@ -423,7 +359,7 @@ function ellipseCoordinates(x,y){
  const rx=Math.max(8,a.rx*trackingCanvas.width),ry=Math.max(8,a.ry*trackingCanvas.height);
  const angle=Number(a.rotation||0),dx=x-cx,dy=y-cy,ca=Math.cos(angle),sa=Math.sin(angle);
  const ex=dx*ca+dy*sa,ey=-dx*sa+dy*ca;
- return {radius:Math.hypot(ex/rx,ey/ry),cx,cy,rx,ry};
+ return {radius:Math.hypot(ex/rx,ey/ry),angle:Math.atan2(ey/ry,ex/rx),ex,ey,cx,cy,rx,ry};
 }
 function detectGreenZero(data,w,h){
  if(!wheelArea)return null;
@@ -491,6 +427,16 @@ function trackingFrame(now){
    wheelAnglePrevious=angle;$('wheelState').textContent='Zero verde detectado · '+green.pixels+' pixels';
   }else{$('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Não encontrei o setor verde dentro da área marcada.';wheelAnglePrevious=null;}
   const ball=detectWhiteBall(frame.data,trackingCanvas.width,trackingCanvas.height,tracked.ball);
+  if(green&&ball){
+   const gp=ellipseCoordinates(green.x,green.y),bp=ellipseCoordinates(ball.x,ball.y);
+   if(gp&&bp){
+    let relative=bp.angle-gp.angle;
+    while(relative>Math.PI)relative-=2*Math.PI;while(relative< -Math.PI)relative+=2*Math.PI;
+    const slot=Math.round(relative/(2*Math.PI/37));
+    showPossibleRegion((slot+37)%37,Math.min(green.confidence,ball.confidence));
+   }
+  }else clearPossibleRegion(green?'Zero verde detectado; aguardando bolinha.':'Aguardando detectar o zero verde.');
+
   if(ball){
    if(tracked.ball&&dt>0)ballPixelSpeed=Math.hypot(ball.x-tracked.ball.x,ball.y-tracked.ball.y)/dt;
    tracked.ball=ball;
@@ -563,7 +509,7 @@ window.onNativeCaptureStopped=function(){
  $('captureStatus').textContent='Captura encerrada';$('captureDot').className='dot';
  $('resolution').textContent='—';$('frameCount').textContent='0';$('frameRate').textContent='Taxa de quadros: —';
 };
-restoreMarks();
+clearPossibleRegion();
 updateCaptureSupport();
 </script>
 </body>
