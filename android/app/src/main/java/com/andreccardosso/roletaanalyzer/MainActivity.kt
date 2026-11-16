@@ -11,12 +11,16 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var browserView: WebView
     private lateinit var addressBar: EditText
+    private lateinit var navigation: LinearLayout
+    private lateinit var root: FrameLayout
+    private lateinit var menuButton: Button
     private val startUrl = "https://www.casino.org/casinoscores/pt-br/immersive-roulette/"
 
     private val strategyScript = """
@@ -34,13 +38,14 @@ class MainActivity : Activity() {
             #__yStrategyPanel button.yt-red{background:#b93236}
             #__yStrategyPanel button.yt-black{background:#202a34}
             #__yStrategyPanel button.yt-selected{outline:2px solid #f2c86d;outline-offset:1px}
-            #__yStrategyResult{position:fixed;z-index:2147483647;left:7px;top:calc(50% - min(41vh, 300px) - 82px);width: min(220px, 58vw);background:rgba(9,16,23,.97);color:#fff;border:1px solid #d8ad55;border-radius:10px;padding:7px;box-shadow:0 4px 18px #0009;font:12px Arial,sans-serif;display:none}
+            #__yStrategyResult{position:fixed;z-index:2147483647;left:7px;top:calc(50% - min(41vh, 300px) - 82px);width:min(220px,58vw);background:rgba(9,16,23,.97);color:#fff;border:1px solid #d8ad55;border-radius:10px;padding:7px;box-shadow:0 4px 18px #0009;font:12px Arial,sans-serif;display:none}
             #__yStrategyResult .yr-head{font-weight:800;color:#f1ce80;margin-bottom:5px}
             #__yStrategyResult .yr-list{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
             #__yStrategyResult .yr-cell{background:#1b2935;border-radius:6px;text-align:center;padding:4px 1px}
             #__yStrategyResult .yr-cell small{display:block;color:#aebdca;font-size:9px}
             #__yStrategyResult .yr-cell b{font-size:15px}
             #__yStrategyResult .yr-line{margin-top:5px;font-weight:800;line-height:1.4;overflow-wrap:anywhere}
+            #__yVideoProbe{position:fixed;z-index:2147483646;right:8px;bottom:8px;max-width:210px;background:rgba(9,16,23,.92);color:#fff;border:1px solid #6d8799;border-radius:8px;padding:6px 9px;font:11px Arial,sans-serif;pointer-events:none}
             @media(max-width:600px){#__yStrategyPanel{width:96px;left:4px;padding:5px}#__yStrategyPanel button{height:27px;font-size:11px}#__yStrategyResult{left:4px;width:190px}}
           `;
           document.head.appendChild(style);
@@ -57,31 +62,95 @@ class MainActivity : Activity() {
               grid.querySelectorAll('button').forEach(x=>x.classList.toggle('yt-selected',x===b));
               const values=offsets.map(o=>wheel[(start+o)%wheel.length]);
               result.style.display='block';
-              result.innerHTML='<div class="yr-head">INICIAL '+n+' · HORÁRIO · 45°</div><div class="yr-list">'+values.map((v,i)=>'<div class="yr-cell"><small>'+labels[i]+'</small><b>'+v+'</b></div>').join('')+'</div><div class="yr-line">Lista: '+values.join(' – ')+'</div>';
+              result.innerHTML='<div class="yr-head">INICIAL '+n+' · SENTIDO HORÁRIO · 45°</div><div class="yr-list">'+values.map((v,i)=>'<div class="yr-cell"><small>'+labels[i]+'</small><b>'+v+'</b></div>').join('')+'</div><div class="yr-line">Lista: '+values.join(' – ')+'</div>';
             });
             grid.appendChild(b);
           }
           document.documentElement.appendChild(result);
           document.documentElement.appendChild(panel);
+
+          const probe=document.createElement('div');probe.id='__yVideoProbe';probe.textContent='Vídeo: procurando fonte acessível…';
+          document.documentElement.appendChild(probe);
+          let lastState='';
+          function inspectVideo(){
+            const videos=Array.from(document.querySelectorAll('video'));
+            if(!videos.length){
+              const state='Nenhum vídeo HTML acessível nesta página (pode estar em iframe ou canvas).';
+              if(state!==lastState){probe.textContent=state;lastState=state;}
+              return;
+            }
+            const v=videos.find(x=>x.readyState>=2 && x.videoWidth>0 && x.videoHeight>0) || videos[0];
+            let access='aguardando quadros';
+            if(v.readyState>=2 && v.videoWidth>0){
+              try{
+                const c=document.createElement('canvas');c.width=2;c.height=2;
+                const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(v,0,0,2,2);cx.getImageData(0,0,1,1);
+                access='quadros acessíveis';
+              }catch(e){access='bloqueado por proteção/CORS';}
+            }
+            const state='Vídeo '+v.videoWidth+'×'+v.videoHeight+' · '+(v.paused?'pausado':'reproduzindo')+' · '+access;
+            if(state!==lastState){probe.textContent=state;lastState=state;}
+          }
+          inspectVideo();setInterval(inspectVideo,1200);
         })();
     """.trimIndent()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        enterImmersiveMode()
         buildInterface()
     }
 
+    @Suppress("DEPRECATION")
+    private fun enterImmersiveMode() {
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        )
+    }
+
     private fun buildInterface() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF0B1117.toInt())
+        root = FrameLayout(this).apply { setBackgroundColor(0xFF000000.toInt()) }
+        browserView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.userAgentString = settings.userAgentString.replace("; wv)", ")").replace("Version/4.0 ", "")
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            settings.allowContentAccess = true
+            settings.allowFileAccess = false
+            settings.loadsImagesAutomatically = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.javaScriptCanOpenWindowsAutomatically = true
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.setSupportZoom(true)
+            settings.builtInZoomControls = false
+            settings.displayZoomControls = false
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            webChromeClient = WebChromeClient()
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    if (!url.isNullOrBlank()) addressBar.setText(url)
+                    browserView.evaluateJavascript(strategyScript, null)
+                }
+            }
         }
-        val navigation = LinearLayout(this).apply {
+        root.addView(browserView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        navigation = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(7, 5, 7, 5)
-            setBackgroundColor(0xFF17232E.toInt())
+            setPadding(6, 4, 6, 4)
+            setBackgroundColor(0xEE17232E.toInt())
+            visibility = View.GONE
         }
         addressBar = EditText(this).apply {
             setSingleLine(true)
@@ -101,42 +170,29 @@ class MainActivity : Activity() {
         }
         val goButton = Button(this).apply {
             text = "IR"
-            setOnClickListener { navigateToAddress() }
+            setOnClickListener { navigateToAddress(); navigation.visibility = View.GONE }
         }
-        navigation.addView(addressBar, LinearLayout.LayoutParams(0, 46, 1f))
-        navigation.addView(goButton, LinearLayout.LayoutParams(58, 46))
+        navigation.addView(addressBar, LinearLayout.LayoutParams(0, 44, 1f))
+        navigation.addView(goButton, LinearLayout.LayoutParams(56, 44))
+        val navParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP
+        )
+        root.addView(navigation, navParams)
 
-        browserView = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.databaseEnabled = true
-            settings.userAgentString = settings.userAgentString.replace("; wv)", ")").replace("Version/4.0 ", "")
-            settings.cacheMode = WebSettings.LOAD_DEFAULT
-            settings.allowContentAccess = true
-            settings.allowFileAccess = false
-            settings.loadsImagesAutomatically = true
-            settings.mediaPlaybackRequiresUserGesture = false
-            settings.javaScriptCanOpenWindowsAutomatically = true
-            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            settings.setSupportZoom(true)
-            settings.builtInZoomControls = false
-            settings.displayZoomControls = false
-            isVerticalScrollBarEnabled = true
-            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            webChromeClient = WebChromeClient()
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    if (!url.isNullOrBlank()) addressBar.setText(url)
-                    browserView.evaluateJavascript(strategyScript, null)
-                }
+        menuButton = Button(this).apply {
+            text = "⋮"
+            textSize = 22f
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0xCC17232E.toInt())
+            setOnClickListener {
+                navigation.visibility = if (navigation.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             }
         }
-        root.addView(navigation, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-        root.addView(browserView, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-        ))
+        val menuParams = FrameLayout.LayoutParams(48, 48, Gravity.TOP or Gravity.RIGHT).apply {
+            topMargin = 8
+            rightMargin = 8
+        }
+        root.addView(menuButton, menuParams)
         setContentView(root)
         browserView.loadUrl(startUrl)
     }
