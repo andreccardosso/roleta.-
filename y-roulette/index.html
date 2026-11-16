@@ -583,7 +583,7 @@ Engine.prototype._acquire=function(c,t){
 Engine.prototype._start=function(bd,t,p){
   const tk=this.tk;
   tk.locked=true;tk.dir=Math.sign(p.cum);tk.raw=bd.ang;tk.B=bd.ang;tk.v=Math.abs(p.cum)/Math.max(0.05,t-p.t0);tk.lastSeen=t;tk.pend=null;
-  this.spin={T:[t],B:[bd.ang],Z:[this.zero.Z],R:[bd.rho],dir:tk.dir,dropped:false,wasTrack:true,inCnt:0,pred:null,lastPredT:-1,t0:t};
+  this.spin={T:[t],B:[bd.ang],Z:[this.zero.Z],R:[bd.rho],ZFresh:[this.zero.ok&&t-this.zero.seen<=0.6],dir:tk.dir,dropped:false,wasTrack:true,inCnt:0,pred:null,lastPredT:-1,t0:t};
 };
 Engine.prototype._end=function(t){
   const sp=this.spin,tk=this.tk;
@@ -592,8 +592,15 @@ Engine.prototype._end=function(t){
   const n=sp.T.length;
   if(n<20||sp.T[n-1]-sp.T[0]<2)return null;
   const phiAct=sp.B[n-1]-sp.Z[n-1];
-  const e={t:Date.now(),valid:false,kPred:null,w:null,kReal:null,hit:null,res:null,dir:sp.dir,phiDrop:null,phiAct:phiAct,calibration:opticalCalibration?'optical':'geometric'};
-  if(sp.dropped&&sp.R[n-1]<0.9){e.valid=true;e.kReal=pocketOf(phiAct,this.mirror);}
+  const duration=sp.T[n-1]-sp.T[0];
+  const freshCount=(sp.ZFresh||[]).filter(Boolean).length;
+  const freshRatio=freshCount/Math.max(1,n);
+  const zeroRecent=this.zero.ok&&(t-this.zero.seen)<=1.0;
+  const checks={enoughSamples:n>=20,enoughDuration:duration>=2,droppedDetected:!!sp.dropped,ballInsideWheel:sp.R[n-1]<0.9,zeroCoverage:freshRatio>=0.55,zeroRecent:zeroRecent};
+  const accepted=Object.values(checks).every(Boolean);
+  const e={t:Date.now(),valid:false,kPred:null,w:null,kReal:null,hit:null,res:null,dir:sp.dir,phiDrop:null,phiAct:phiAct,calibration:opticalCalibration?'optical':'geometric',validation:checks,zeroCoverage:freshRatio};
+  // Estimativa geométrica com critérios mínimos; não é confirmação óptica do número.
+  if(accepted){e.valid=true;e.kReal=pocketOf(phiAct,this.mirror);}
   if(sp.pred){e.kPred=sp.pred.k;e.w=sp.pred.w;e.phiDrop=sp.pred.phiDrop;
     if(e.valid){e.hit=cdist(e.kReal,e.kPred)<=e.w;e.res=sp.dir*wrapPi(phiAct-sp.pred.phiDrop);}}
   this.hist.spins.push(e);
@@ -621,7 +628,7 @@ Engine.prototype.frame=function(img,t){
       const sp=this.spin;
       if(gap<0.25&&gap>1e-3){const inst=Math.abs(bestDelta)/gap;if(inst<40)tk.v=tk.v*0.7+inst*0.3;}
       tk.B+=bestDelta;tk.raw=best.ang;tk.lastSeen=t;ball=best;
-      sp.T.push(t);sp.B.push(tk.B);sp.Z.push(this.zero.Z);sp.R.push(best.rho);
+      sp.T.push(t);sp.B.push(tk.B);sp.Z.push(this.zero.Z);sp.R.push(best.rho);sp.ZFresh.push(this.zero.ok&&t-this.zero.seen<=0.6);
       if(best.rho<0.9)sp.inCnt++;else sp.inCnt=0;
       if(!sp.dropped&&sp.inCnt>=3&&sp.wasTrack){
         sp.dropped=true;
@@ -701,7 +708,7 @@ function clearPossibleRegion(message){
 function renderLastResult(e){
  const num=$('lastResultNumber'),detail=$('lastResultDetail');
  if(!e){num.textContent='—';num.className='lastResultNumber';detail.textContent='Aguardando a conclusão de um giro';return;}
- if(!e.valid||e.kReal===null||e.kReal===undefined){num.textContent='?';num.className='lastResultNumber';detail.textContent='Giro salvo, mas sem estimativa confiável do número';return;}
+ if(!e.valid||e.kReal===null||e.kReal===undefined){num.textContent='?';num.className='lastResultNumber';const failed=e.validation?Object.keys(e.validation).filter(k=>!e.validation[k]):[];detail.textContent='Resultado não confirmado'+(failed.length?' · faltou validar '+failed.join(', '):' · rastreamento insuficiente');return;}
  const n=WHEEL[e.kReal];num.textContent=String(n);num.className='lastResultNumber '+pocketClass(n);
  detail.textContent=(e.calibration==='optical'?'Movimento + orientação calibrada pelos números da foto':'Estimativa geométrica pelo movimento')+' · '+(e.kPred!==null?(e.hit?'dentro da zona estimada':'fora da zona estimada'):'sem zona de comparação')+'. Confira com o resultado real.';
 }
@@ -718,7 +725,7 @@ function onSpinEnd(e){
  lastSpin=e;
  lastZone=e.kPred!==null?{k:e.kPred,w:e.w}:null;
  saveHist();renderHistory();
- $('historyStatus').textContent=(e.valid?'Giro registrado: número estimado '+WHEEL[e.kReal]+(e.calibration==='optical'?' com orientação calibrada pela foto. ':' pelo movimento. '):'Giro registrado, mas não consegui estimar o número com confiança. ')+'Confira com o resultado real; se estiver errado, corrija no campo abaixo. '+qualityText()+'.';
+ $('historyStatus').textContent=(e.valid?'Estimativa registrada automaticamente: '+WHEEL[e.kReal]+'. Os critérios mínimos de rastreio foram atendidos, mas confira com o resultado real. ':'Giro guardado como não confirmado; não entrou nas estatísticas porque faltaram critérios de validação. ')+'Você pode corrigir pelo campo abaixo. '+qualityText()+'.';
 }
 function recordActual(){
  const actual=Number($('actualNumber').value);
