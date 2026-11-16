@@ -140,6 +140,7 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 
 <section class="panel" id="regionPanel">
  <h2>Região experimental · 13 números</h2>
+ <div class="status" id="zeroTrackingStatus" style="margin-bottom:9px"><span class="dot red"></span><span>ZERO NÃO LOCALIZADO</span></div>
  <div class="metric"><div class="name">Número central estimado</div><div class="value" id="regionCenter">Aguardando rastreio</div><div class="detail" id="regionStatus">Aguardando detecção simultânea do zero verde e da bolinha.</div></div>
  <div class="numberBoard" id="predictedRegion" style="margin-top:10px"></div>
  <p class="hint">Faixa exploratória: número central e seis vizinhos de cada lado na ordem europeia. Não é previsão garantida; depende da detecção visual e do alinhamento da roda.</p>
@@ -320,7 +321,7 @@ let wheelAngleAccum = 0;
 let wheelRpm = null;
 let previousFrameData = null;
 let ballAnglePrevious = null, ballAngleUnwrapped = 0, ballOmega = null;
-let zeroAnglePrevious = null, zeroAngleUnwrapped = 0, wheelOmega = null, zeroAngleInitialized = false, lastBallTime = null;
+let zeroAnglePrevious = null, zeroAngleUnwrapped = 0, wheelOmega = null, zeroAngleInitialized = false, lastBallTime = null, lastZeroSeenAt = null, lastZeroUnwrapped = null;
 let ballLockCount=0,ballLockTravel=0,ballLockDirection=0,ballLocked=false;
 let ballMotionHistory = [], ballAngleSamples = [];
 let pendingPrediction = null;
@@ -384,6 +385,14 @@ function ellipseCoordinates(x,y){
  return {radius:Math.hypot(ex/rx,ey/ry),angle:Math.atan2(ey/ry,ex/rx),ex,ey,cx,cy,rx,ry};
 }
 function wrapAngle(a){while(a>Math.PI)a-=2*Math.PI;while(a< -Math.PI)a+=2*Math.PI;return a;}
+function setZeroStatus(state,detail){
+ const el=$('zeroTrackingStatus');if(!el)return;
+ const dot=el.querySelector('.dot'),label=el.querySelector('span:last-child');
+ if(state==='detected'){dot.className='dot green';label.textContent='ZERO DETECTADO';}
+ else if(state==='following'){dot.className='dot';label.textContent='ZERO ACOMPANHADO';}
+ else{dot.className='dot red';label.textContent='ZERO NÃO LOCALIZADO';}
+ el.title=detail||label.textContent;
+}
 function circularMean(points){
  let sx=0,sy=0,sw=0;
  for(const p of points){sx+=Math.cos(p.angle)*p.weight;sy+=Math.sin(p.angle)*p.weight;sw+=p.weight;}
@@ -511,12 +520,29 @@ function trackingFrame(now){
   const green=detectGreenZero(frame.data,trackingCanvas.width,trackingCanvas.height);
   const ball=detectMovingBall(frame.data,trackingCanvas.width,trackingCanvas.height,previousFrameData,ballAnglePrevious,ballOmega&&dt?ballOmega*dt:0);
   if(green){
-   if(zeroAnglePrevious!==null&&dt>0){
-    const d=wrapAngle(green.angle-zeroAnglePrevious);zeroAngleUnwrapped+=d;wheelOmega=.8*(wheelOmega||d/dt)+.2*(d/dt);
-    wheelRpm=wheelOmega*60/(2*Math.PI);$('wheelSpeed').textContent=Math.abs(wheelRpm).toFixed(1)+' RPM';
-   }else{if(!zeroAngleInitialized){zeroAngleUnwrapped=green.angle;zeroAngleInitialized=true;}$('wheelSpeed').textContent='Calculando…';}
-   zeroAnglePrevious=green.angle;$('wheelState').textContent='Zero verde detectado · '+green.pixels+' pixels';
-  }else{if(zeroAnglePrevious!==null&&wheelOmega!==null&&dt>0)zeroAngleUnwrapped+=wheelOmega*dt;zeroAnglePrevious=null;$('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Zero não visível; posição extrapolada pela velocidade da roda.';}
+   const gap=lastZeroSeenAt===null?Infinity:(now-lastZeroSeenAt)/1000;
+   if(zeroAnglePrevious!==null&&dt>0&&gap<=2.0){
+    const zeroDt=(now-lastZeroSeenAt)/1000,d=wrapAngle(green.angle-zeroAnglePrevious);
+    if(zeroDt>0.08){const measured=d/zeroDt;wheelOmega=wheelOmega===null?measured:.8*wheelOmega+.2*measured;}
+    zeroAngleUnwrapped=lastZeroUnwrapped===null?green.angle:lastZeroUnwrapped+d;
+    wheelRpm=wheelOmega===null?null:wheelOmega*60/(2*Math.PI);
+    if(wheelRpm!==null)$('wheelSpeed').textContent=Math.abs(wheelRpm).toFixed(1)+' RPM';
+   }else{zeroAngleUnwrapped=green.angle;zeroAngleInitialized=true;$('wheelSpeed').textContent='Calculando…';}
+   zeroAnglePrevious=green.angle;lastZeroUnwrapped=zeroAngleUnwrapped;lastZeroSeenAt=now;
+   setZeroStatus('detected','Setor verde localizado no quadro atual · '+green.pixels+' pixels.');
+   $('wheelState').textContent='Zero verde detectado · '+green.pixels+' pixels';
+  }else{
+   const sinceZero=lastZeroSeenAt===null?Infinity:(now-lastZeroSeenAt)/1000;
+   if(sinceZero<=2.0&&lastZeroUnwrapped!==null&&wheelOmega!==null){
+    zeroAngleUnwrapped=lastZeroUnwrapped+wheelOmega*sinceZero;
+    setZeroStatus('following','Zero não aparece neste quadro; posição estimada por até 2 segundos usando a última velocidade medida.');
+    $('wheelSpeed').textContent='Acompanhando';
+    $('wheelState').textContent='Posição do zero extrapolada · '+sinceZero.toFixed(1)+' s desde a última detecção.';
+   }else{
+    setZeroStatus('lost','O setor verde não foi localizado e não há extrapolação confiável.');
+    $('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Zero não localizado; aguardando nova detecção verde.';
+   }
+  }
   if(ball){
    if(ballAnglePrevious!==null&&lastBallTime!==null&&now/1000>lastBallTime){
     const ballDt=now/1000-lastBallTime,d=wrapAngle(ball.angle-ballAnglePrevious);
@@ -573,7 +599,7 @@ function startTracking(){
  trackingCanvas.width=Math.max(1,Math.round(vw*scale));trackingCanvas.height=Math.max(1,Math.round(vh*scale));
  trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
  trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
- tracked.ball=null;previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;previousFrameData=null;ballAnglePrevious=null;ballAngleUnwrapped=0;ballOmega=null;lastBallTime=null;ballAngleSamples=[];ballLockCount=0;ballLockTravel=0;ballLockDirection=0;ballLocked=false;zeroAnglePrevious=null;zeroAngleUnwrapped=0;wheelOmega=null;zeroAngleInitialized=false;ballMotionHistory=[];ballAngleSamples=[];pendingPrediction=null;clearPossibleRegion();
+ tracked.ball=null;previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;previousFrameData=null;ballAnglePrevious=null;ballAngleUnwrapped=0;ballOmega=null;lastBallTime=null;ballAngleSamples=[];ballLockCount=0;ballLockTravel=0;ballLockDirection=0;ballLocked=false;zeroAnglePrevious=null;zeroAngleUnwrapped=0;wheelOmega=null;zeroAngleInitialized=false;lastZeroSeenAt=null;lastZeroUnwrapped=null;setZeroStatus('lost','Aguardando a primeira detecção do setor verde.');ballMotionHistory=[];ballAngleSamples=[];pendingPrediction=null;clearPossibleRegion();
  tracking=true;$('startTracking').disabled=true;$('stopTracking').disabled=false;
  $('ballSpeed').textContent='Procurando…';$('wheelSpeed').textContent='Procurando…';
  $('ballState').textContent='Detectando a bolinha automaticamente…';$('wheelState').textContent='Detectando o zero verde automaticamente…';
