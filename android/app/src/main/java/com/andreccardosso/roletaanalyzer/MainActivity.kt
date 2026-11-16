@@ -169,44 +169,57 @@ class MainActivity : Activity() {
                       if(!overlay){
                         overlay=document.createElement('div');
                         overlay.id='__yWheelCircle';
-                        overlay.style.cssText='position:fixed;display:none;border:3px solid #ffd34e;border-radius:50%;background:#ffd34e18;box-shadow:0 0 10px #ffd34e;transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;';
+                        overlay.style.cssText='position:fixed;display:none;border:3px solid #ffd34e;border-radius:50%;background:rgba(255,211,78,.10);box-shadow:0 0 12px #ffd34e;transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;';
                         document.documentElement.appendChild(overlay);
                       }
                       var start=null;
-                      function point(e){return {x:e.clientX,y:e.clientY};}
+                      function coords(e){
+                        var p=(e.changedTouches&&e.changedTouches[0])||(e.touches&&e.touches[0])||e;
+                        return {x:p.clientX,y:p.clientY};
+                      }
                       function down(e){
-                        if(!window.__yCircleDrawing || e.button>0) return;
-                        e.preventDefault();e.stopPropagation();
-                        start=point(e);
-                        overlay.style.display='block';
-                        overlay.style.left=start.x+'px';overlay.style.top=start.y+'px';
+                        if(!window.__yCircleDrawing || (e.button!==undefined && e.button>0)) return;
+                        var p=coords(e);e.preventDefault();e.stopPropagation();
+                        start=p;overlay.style.display='block';
+                        overlay.style.left=p.x+'px';overlay.style.top=p.y+'px';
                         overlay.style.width='0px';overlay.style.height='0px';
                       }
                       function move(e){
                         if(!start)return;
-                        e.preventDefault();e.stopPropagation();
-                        var dx=e.clientX-start.x,dy=e.clientY-start.y;
+                        var p=coords(e);e.preventDefault();e.stopPropagation();
+                        var dx=p.x-start.x,dy=p.y-start.y;
+                        var diameter=Math.max(Math.abs(dx),Math.abs(dy));
                         overlay.style.left=(start.x+dx/2)+'px';
                         overlay.style.top=(start.y+dy/2)+'px';
-                        overlay.style.width=(Math.abs(dx)*2)+'px';
-                        overlay.style.height=(Math.abs(dy)*2)+'px';
+                        overlay.style.width=diameter+'px';overlay.style.height=diameter+'px';
                       }
                       function up(e){
                         if(!start)return;
-                        e.preventDefault();e.stopPropagation();
-                        var cx=(start.x+e.clientX)/2,cy=(start.y+e.clientY)/2;
-                        var radius=Math.max(Math.abs(e.clientX-start.x),Math.abs(e.clientY-start.y))/2,rx=radius,ry=radius;
+                        var p=coords(e);e.preventDefault();e.stopPropagation();
+                        var dx=p.x-start.x,dy=p.y-start.y;
+                        var cx=(start.x+p.x)/2,cy=(start.y+p.y)/2;
+                        var radius=Math.max(Math.abs(dx),Math.abs(dy))/2;
                         start=null;window.__yCircleDrawing=false;
-                        if(rx<20 || ry<20){overlay.style.display='none';return;}
+                        if(radius<20){overlay.style.display='none';return;}
                         if(window.YBrowser && window.YBrowser.onBrowserCircle){
-                          window.YBrowser.onBrowserCircle(cx/Math.max(1,innerWidth),cy/Math.max(1,innerHeight),rx/Math.max(1,innerWidth),ry/Math.max(1,innerHeight));
+                          window.YBrowser.onBrowserCircle(cx/Math.max(1,innerWidth),cy/Math.max(1,innerHeight),radius/Math.max(1,innerWidth),radius/Math.max(1,innerHeight));
                         }
                       }
                       if(!window.__yCircleHandlers){
-                        document.addEventListener('pointerdown',down,true);
-                        document.addEventListener('pointermove',move,true);
-                        document.addEventListener('pointerup',up,true);
-                        document.addEventListener('pointercancel',up,true);
+                        if(window.PointerEvent){
+                          document.addEventListener('pointerdown',down,true);
+                          document.addEventListener('pointermove',move,true);
+                          document.addEventListener('pointerup',up,true);
+                          document.addEventListener('pointercancel',up,true);
+                        }else{
+                          document.addEventListener('touchstart',down,{capture:true,passive:false});
+                          document.addEventListener('touchmove',move,{capture:true,passive:false});
+                          document.addEventListener('touchend',up,{capture:true,passive:false});
+                          document.addEventListener('touchcancel',up,{capture:true,passive:false});
+                          document.addEventListener('mousedown',down,true);
+                          document.addEventListener('mousemove',move,true);
+                          document.addEventListener('mouseup',up,true);
+                        }
                         window.__yCircleHandlers=true;
                       }
                     })();
