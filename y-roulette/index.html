@@ -210,9 +210,9 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <h2>Análise dos movimentos</h2>
  <div class="grid">
   <div class="metric">
-   <div class="name">Velocidade da bola</div>
+   <div class="name">Velocidade da bolinha</div>
    <div class="value" id="ballSpeed">Aguardando análise</div>
-   <div class="detail" id="ballState">O rastreamento da posição da bola ainda não foi iniciado.</div>
+   <div class="detail" id="ballState">A velocidade aparecerá em voltas por segundo quando a bolinha for rastreada.</div>
   </div>
   <div class="metric">
    <div class="name">Rotação da mesa</div>
@@ -222,7 +222,7 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
   <div class="metric">
    <div class="name">Comportamento da bolinha</div>
    <div class="value" id="ballTrend">Aguardando</div>
-   <div class="detail" id="ballTrendDetail">A variação da velocidade aparecerá durante o rastreio.</div>
+   <div class="detail" id="ballTrendDetail">Mostra se está acelerando, mantendo a velocidade ou desacelerando.</div>
   </div>
   <div class="metric">
    <div class="name">Qualidade da leitura</div>
@@ -332,6 +332,7 @@ window.addEventListener('resize',resizeWheelLayer);
 
 let captureStream = null;
 let lastBallSample = null;
+let ballSpeedSamples = [];
 let ballTrendText = 'Aguardando';
 let frameCallbackId = null;
 let frameTotal = 0;
@@ -800,28 +801,32 @@ function paintLive(i){
  }
  // bolinha
  if(i.locked){
-  $('ballSpeed').textContent=(i.vBall/TAU).toFixed(2)+' voltas/s';
-  const p=i.pred,eta=p&&i.phase==='pista'?' · queda em ~'+Math.max(0,p.D-(i.t-p.t)).toFixed(1)+' s':'';
-  $('ballState').textContent=(i.phase==='roda'?'Na roda':'Na pista')+' · '+i.laps.toFixed(1)+' voltas'+eta;
- }else{
-  $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Aguardando pico móvel consistente na pista externa.';
- }
- // Tendência da velocidade: calculada com amostras sucessivas, sem alterar o motor de rastreio.
- if(i.locked){
-  const speed=i.vBall/TAU, prev=lastBallSample;
-  if(prev&&i.t>prev.t){
-   const dt=i.t-prev.t,delta=(speed-prev.speed)/dt;
-   if(dt<1.5){
-    ballTrendText=delta<-0.025?'Desacelerando':(delta>0.025?'Acelerando':'Velocidade estável');
-    $('ballTrendDetail').textContent='Variação aproximada: '+(delta>=0?'+':'')+delta.toFixed(3)+' voltas/s²';
-   }
+  const speed=i.vBall/TAU;
+  $('ballSpeed').textContent=speed.toFixed(2)+' voltas/s';
+  const p=i.pred,eta=p&&i.phase==='pista'?' · queda estimada em ~'+Math.max(0,p.D-(i.t-p.t)).toFixed(1)+' s':'';
+  $('ballState').textContent=(i.phase==='roda'?'Na roda':'Na pista externa')+' · '+i.laps.toFixed(1)+' voltas completas'+eta;
+  // Suaviza a leitura e compara duas janelas para reduzir oscilações quadro a quadro.
+  ballSpeedSamples.push({t:i.t,speed:speed});
+  while(ballSpeedSamples.length&&i.t-ballSpeedSamples[0].t>2.4)ballSpeedSamples.shift();
+  if(ballSpeedSamples.length>=10){
+   const recent=ballSpeedSamples.slice(-5),prior=ballSpeedSamples.slice(-10,-5);
+   const avgRecent=recent.reduce((a,x)=>a+x.speed,0)/recent.length;
+   const avgPrior=prior.reduce((a,x)=>a+x.speed,0)/prior.length;
+   const delta=avgRecent-avgPrior;
+   const accel=delta/Math.max(0.25,recent[recent.length-1].t-prior[0].t);
+   ballTrendText=delta<-0.025?'Desacelerando':(delta>0.025?'Acelerando':'Velocidade estável');
+   $('ballTrendDetail').textContent='Média recente: '+avgRecent.toFixed(2)+' voltas/s · variação: '+(accel>=0?'+':'')+accel.toFixed(3)+' voltas/s²';
+  }else{
+   ballTrendText='Medindo';
+   $('ballTrendDetail').textContent='Coletando amostras para identificar aceleração ou desaceleração.';
   }
   lastBallSample={t:i.t,speed:speed};
   $('ballTrend').textContent=ballTrendText;
  }else{
-  lastBallSample=null;
-  $('ballTrend').textContent='Sem amostra';
-  $('ballTrendDetail').textContent='Aguardando rastreamento contínuo da bolinha.';
+  lastBallSample=null;ballSpeedSamples=[];
+  $('ballTrend').textContent='Sem rastreamento';
+  $('ballTrendDetail').textContent='Aguardando identificação contínua da bolinha na pista.';
+  $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Aguardando pico móvel consistente na pista externa.';
  }
  if(i.locked&&i.zero&&i.zeroMiss===0&&i.ball){
   $('readQuality').textContent='Simultânea';
@@ -879,7 +884,7 @@ function startTracking(){
  if(!captureStream||(!nativeCaptureActive&&screenVideo.readyState<2)||(nativeCaptureActive&&(!source.complete||!source.naturalWidth))){trackingStatus('Primeiro toque em Compartilhar tela para iniciar a captura.');return;}
  if(!wheelArea){trackingStatus('Primeiro desenhe e alinhe a área da roleta na tela do navegador.');return;}
  buildEngine(frameSize());
- lastT=-1;lastSpin=null;lastZone=null;regionKey='';lastBallSample=null;
+ lastT=-1;lastSpin=null;lastZone=null;regionKey='';lastBallSample=null;ballSpeedSamples=[];
  $('ballTrend').textContent='Aguardando';$('ballTrendDetail').textContent='Aguardando amostras de velocidade.';
  $('readQuality').textContent='—';$('readQualityDetail').textContent='Aguardando detecção simultânea.';
  setZeroStatus('lost','Aguardando a primeira detecção do setor verde.');clearPossibleRegion();
