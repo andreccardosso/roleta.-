@@ -149,6 +149,19 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 
 
 
+<section class="panel" id="opticalPhotoPanel">
+ <h2>Leitura óptica · foto da galeria</h2>
+ <p class="hint">Escolha uma foto ou captura de tela da roleta. O aplicativo tentará reconhecer os números impressos para prepararmos a leitura óptica.</p>
+ <div class="row">
+  <button type="button" class="primary" id="chooseGalleryImage">Escolher imagem da galeria</button>
+  <input id="galleryImageInput" type="file" accept="image/*" hidden>
+  <button type="button" id="runGalleryOcr" disabled>Reconhecer números da foto</button>
+ </div>
+ <img id="galleryImagePreview" alt="Imagem selecionada da galeria" style="display:none;width:100%;max-height:360px;object-fit:contain;margin-top:10px;border-radius:10px;background:#05080b">
+ <p class="hint" id="galleryOcrStatus">Nenhuma imagem selecionada.</p>
+ <div class="metric" id="galleryOcrResult" style="display:none;white-space:pre-wrap;word-break:break-word"></div>
+</section>
+
 <section class="panel" id="numberReference">
  <h2>Roleta europeia · referência dos números</h2>
  <div class="numberBoard" aria-label="Números da roleta europeia">
@@ -837,6 +850,48 @@ window.onNativeCaptureStopped=function(){
  $('captureStatus').textContent='Captura encerrada';$('captureDot').className='dot';
  $('resolution').textContent='—';$('frameCount').textContent='0';$('frameRate').textContent='Taxa de quadros: —';
 };
+// Leitura óptica inicial de uma imagem escolhida na galeria.
+let galleryImageFile=null, galleryImageUrl=null, galleryOcrWorker=null;
+$('chooseGalleryImage').addEventListener('click',()=>$('galleryImageInput').click());
+$('galleryImageInput').addEventListener('change',function(){
+ const file=this.files&&this.files[0];if(!file)return;
+ if(!file.type||!file.type.startsWith('image/')){$('galleryOcrStatus').textContent='Escolha um arquivo de imagem.';return;}
+ galleryImageFile=file;
+ if(galleryImageUrl)URL.revokeObjectURL(galleryImageUrl);
+ galleryImageUrl=URL.createObjectURL(file);
+ const preview=$('galleryImagePreview');preview.src=galleryImageUrl;preview.style.display='block';
+ $('runGalleryOcr').disabled=false;
+ $('galleryOcrResult').style.display='none';
+ $('galleryOcrStatus').textContent='Imagem carregada: '+file.name+'. Toque em Reconhecer números da foto.';
+});
+async function loadGalleryOcr(){
+ if(galleryOcrWorker)return galleryOcrWorker;
+ if(!window.Tesseract)await new Promise((resolve,reject)=>{
+  const script=document.createElement('script');
+  script.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+  script.onload=resolve;script.onerror=()=>reject(new Error('Não consegui carregar o mecanismo de leitura óptica. Verifique a internet.'));
+  document.head.appendChild(script);
+ });
+ galleryOcrWorker=await Tesseract.createWorker('eng');
+ await galleryOcrWorker.setParameters({tessedit_char_whitelist:'0123456789',tessedit_pageseg_mode:Tesseract.PSM.SPARSE_TEXT});
+ return galleryOcrWorker;
+}
+$('runGalleryOcr').addEventListener('click',async()=>{
+ if(!galleryImageFile)return;
+ const btn=$('runGalleryOcr');btn.disabled=true;
+ $('galleryOcrStatus').textContent='Analisando a foto… a primeira leitura pode demorar um pouco.';
+ try{
+  const worker=await loadGalleryOcr();
+  const result=await worker.recognize(galleryImageFile);
+  const words=(result.data.words||[]).filter(w=>/\d/.test(w.text)).map(w=>w.text.trim());
+  const confidence=result.data.confidence||0;
+  $('galleryOcrResult').style.display='block';
+  $('galleryOcrResult').textContent=words.length?'Números reconhecidos na imagem:\n'+words.join(' · ')+'\n\nConfiança geral do OCR: '+confidence.toFixed(1)+'%.':'Não consegui reconhecer números com segurança nesta foto. Tente uma imagem mais nítida e aproximada.';
+  $('galleryOcrStatus').textContent='Leitura da foto concluída. Esta etapa verifica o reconhecimento dos dígitos; ainda não associa automaticamente cada casa à posição da bolinha.';
+ }catch(err){$('galleryOcrStatus').textContent=err&&err.message?err.message:'Falha ao processar a imagem.';}
+ finally{btn.disabled=false;}
+});
+
 renderHistory();
 clearPossibleRegion();
 updateCaptureSupport();
