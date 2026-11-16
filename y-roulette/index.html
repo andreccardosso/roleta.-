@@ -36,7 +36,7 @@ video{display:block;width:100%;max-height:520px;object-fit:contain;background:#0
  .metric .name{font-size:11px}
  .metric .value{font-size:18px;margin-top:2px}
  .metric .detail{font-size:10px;margin-top:2px}
- video{max-height:25vh;min-height:120px}
+ video{max-height:25vh;min-height:120px} #nativeScreenImage{max-height:25vh!important;min-height:120px}
  .videoHint{margin-top:5px}
  button{font-size:12px;padding:8px 9px}
  .hint{font-size:11px}
@@ -64,7 +64,7 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 <section class="panel">
  <h2>Vídeo da roleta</h2>
  <p class="hint">Compartilhe a tela que contém o vídeo da roleta. Mantenha a imagem inteira visível e, se possível, use um vídeo com boa resolução e poucos cortes.</p>
- <div class="videoWrap"><video id="screenVideo" autoplay muted playsinline></video></div>
+ <div class="videoWrap"><video id="screenVideo" autoplay muted playsinline></video><img id="nativeScreenImage" alt="Captura nativa da tela" style="display:none;width:100%;max-height:520px;object-fit:contain;background:#05080b;border-radius:12px"></div>
  <div class="row" style="margin-top:12px">
   <button class="primary" id="startCapture">Compartilhar tela</button>
   <button id="stopCapture" disabled>Encerrar captura</button>
@@ -143,6 +143,11 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 <script>
 const $ = id => document.getElementById(id);
 const screenVideo = $('screenVideo');
+const nativeScreenImage = $('nativeScreenImage');
+let nativeCaptureActive = false;
+function activeSource(){return nativeCaptureActive ? nativeScreenImage : screenVideo;}
+function sourceWidth(){return nativeCaptureActive ? nativeScreenImage.naturalWidth : screenVideo.videoWidth;}
+function sourceHeight(){return nativeCaptureActive ? nativeScreenImage.naturalHeight : screenVideo.videoHeight;}
 
 let markingMode = null;
 const marks = {center:null, ball:null, wheel:null};
@@ -159,8 +164,10 @@ function chooseMark(mode){
  screenVideo.style.cursor='crosshair';
 }
 function videoPointFromClick(event){
- const rect=screenVideo.getBoundingClientRect();
- const vw=screenVideo.videoWidth,vh=screenVideo.videoHeight;
+ const source=activeSource();
+ const rect=source.getBoundingClientRect();
+ const source=activeSource();
+ const vw=sourceWidth(),vh=sourceHeight();
  if(!vw||!vh)return null;
  const scale=Math.min(rect.width/vw,rect.height/vh);
  const shownW=vw*scale,shownH=vh*scale;
@@ -189,7 +196,7 @@ function clearMarks(){
  ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
  $('markStatus').textContent='Marcações apagadas. Faça novamente a calibração no vídeo.';
 }
-screenVideo.addEventListener('click',event=>{
+function handleVideoMarkClick(event){
  if(!markingMode)return;
  const point=videoPointFromClick(event);
  if(!point){$('markStatus').textContent='Toque dentro da imagem do vídeo, não nas bordas pretas.';return;}
@@ -199,7 +206,9 @@ screenVideo.addEventListener('click',event=>{
  $('markStatus').textContent=label[markingMode]+'. Escolha outra marcação ou aguarde a próxima etapa.';
  markingMode=null;screenVideo.style.cursor='default';
  ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
-});
+}
+screenVideo.addEventListener('click',handleVideoMarkClick);
+nativeScreenImage.addEventListener('click',handleVideoMarkClick);
 $('markCenter').addEventListener('click',()=>chooseMark('center'));
 $('markBall').addEventListener('click',()=>chooseMark('ball'));
 $('markWheel').addEventListener('click',()=>chooseMark('wheel'));
@@ -212,10 +221,14 @@ let rateWindowStart = 0;
 let rateWindowFrames = 0;
 
 function updateCaptureSupport(){
- const supported = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
- $('supportStatus').textContent = supported
-  ? 'Captura de tela disponível neste navegador. Toque em “Compartilhar tela” e escolha a janela ou tela do vídeo.'
-  : 'Este navegador não oferece captura de tela. No Android, pode ser necessária uma versão nativa com MediaProjection.';
+ const nativeSupported = !!window.AndroidCapture;
+ const supported = nativeSupported || !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+ $('supportStatus').textContent = nativeSupported
+  ? 'Captura nativa Android disponível. Toque no botão e autorize a captura de tela no aviso do sistema.'
+  : supported
+   ? 'Captura de tela disponível neste navegador. Toque em “Compartilhar tela” e escolha a janela ou tela do vídeo.'
+   : 'Este navegador não oferece captura de tela. Use o APK Android para capturar a tela do aparelho.';
+ if(nativeSupported) $('startCapture').textContent='Capturar tela do Android';
  $('startCapture').disabled = !supported;
 }
 function stopFrameCounter(){
@@ -255,6 +268,10 @@ function startFrameCounter(){
  }
 }
 async function startCapture(){
+ if(window.AndroidCapture){
+  try{window.AndroidCapture.start();}catch(e){$('captureStatus').textContent='Não foi possível solicitar a captura nativa';}
+  return;
+ }
  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
   $('captureStatus').textContent = 'Captura não suportada';
   $('captureDot').className = 'dot red';
@@ -285,11 +302,13 @@ async function startCapture(){
  }
 }
 function stopCapture(){
+ if(nativeCaptureActive && window.AndroidCapture){window.AndroidCapture.stop();return;}
  stopFrameCounter();
  if(captureStream) captureStream.getTracks().forEach(track => track.stop());
  captureStream = null;
  screenVideo.srcObject = null;
- $('startCapture').disabled = !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+ nativeCaptureActive=false;nativeScreenImage.style.display='none';screenVideo.style.display='block';
+ $('startCapture').disabled = !(window.AndroidCapture || (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
  $('stopCapture').disabled = true;
  $('captureStatus').textContent = 'Captura encerrada';
  $('captureDot').className = 'dot';
@@ -362,16 +381,18 @@ function stopTracking(){
  $('stopTracking').disabled=true;
 }
 function trackingFrame(now){
- if(!tracking||!captureStream||screenVideo.paused)return;
+ if(!tracking||!captureStream||(!nativeCaptureActive&&screenVideo.paused))return;
  if(trackingFrameBusy){trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);return;}
  trackingFrameBusy=true;
  try{
-  const vw=screenVideo.videoWidth,vh=screenVideo.videoHeight;
+  const source=activeSource();
+  const vw=sourceWidth(),vh=sourceHeight();
+  if(nativeCaptureActive&&(!source.complete||!source.naturalWidth))return;
   if(!vw||!vh)throw new Error('Vídeo sem dimensões.');
   const scale=Math.min(1,720/vw);
   trackingCanvas.width=Math.max(1,Math.round(vw*scale));
   trackingCanvas.height=Math.max(1,Math.round(vh*scale));
-  trackingCtx.drawImage(screenVideo,0,0,trackingCanvas.width,trackingCanvas.height);
+  trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
   const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
   const dt=previousTrackTime===null?0:(now-previousTrackTime)/1000;
   if(templates.ball&&tracked.ball){
@@ -407,16 +428,17 @@ function trackingFrame(now){
   $('wheelSpeed').textContent='Sem leitura';
   $('wheelState').textContent='Não foi possível processar este quadro.';
  }finally{trackingFrameBusy=false;}
- if(tracking&&typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
+ if(tracking&&!nativeCaptureActive&&typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
 }
 function startTracking(){
- if(!captureStream||screenVideo.readyState<2){trackingStatus('Primeiro compartilhe o vídeo da roleta.');return;}
+ const source=activeSource();
+ if(!captureStream||(!nativeCaptureActive&&screenVideo.readyState<2)||(nativeCaptureActive&&(!source.complete||!source.naturalWidth))){trackingStatus('Primeiro capture a tela com o vídeo da roleta.');return;}
  if(!marks.center||!marks.ball||!marks.wheel){trackingStatus('Marque o centro, a bola e uma referência da roda antes de iniciar.');return;}
- const vw=screenVideo.videoWidth,vh=screenVideo.videoHeight;
+ const vw=sourceWidth(),vh=sourceHeight();
  const scale=Math.min(1,720/vw);
  trackingCanvas.width=Math.max(1,Math.round(vw*scale));
  trackingCanvas.height=Math.max(1,Math.round(vh*scale));
- trackingCtx.drawImage(screenVideo,0,0,trackingCanvas.width,trackingCanvas.height);
+ trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
  const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
  templates.ball=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,marks.ball);
  templates.wheel=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,marks.wheel);
@@ -433,6 +455,30 @@ function startTracking(){
 $('startTracking').addEventListener('click',startTracking);
 $('stopTracking').addEventListener('click',stopTracking);
 
+window.onNativeCaptureStarted=function(width,height){
+ nativeCaptureActive=true;captureStream={native:true};
+ screenVideo.pause();screenVideo.srcObject=null;screenVideo.style.display='none';nativeScreenImage.style.display='block';
+ $('startCapture').disabled=true;$('stopCapture').disabled=false;
+ $('captureStatus').textContent='Captura Android ativa';$('captureDot').className='dot green';
+ $('resolution').textContent=width+' × '+height;$('frameCount').textContent='0';$('frameRate').textContent='Recebendo quadros nativos…';
+};
+let nativeFrames=0,nativeRateStart=0;
+window.onNativeFrame=function(dataUrl,width,height){
+ if(!nativeCaptureActive)return;
+ nativeFrames++;$('frameCount').textContent=String(nativeFrames);
+ const now=performance.now();if(!nativeRateStart)nativeRateStart=now;
+ if(now-nativeRateStart>=1000){$('frameRate').textContent='Taxa recebida: '+(nativeFrames*1000/(now-nativeRateStart)).toFixed(1)+' quadros/s';nativeFrames=0;nativeRateStart=now;}
+ nativeScreenImage.onload=function(){if(tracking)trackingFrame(performance.now());};
+ nativeScreenImage.src=dataUrl;
+};
+window.onNativeCaptureError=function(message){$('captureStatus').textContent=message;$('captureDot').className='dot red';};
+window.onNativeCaptureStopped=function(){
+ stopTracking();stopFrameCounter();captureStream=null;nativeCaptureActive=false;
+ nativeScreenImage.src='';nativeScreenImage.style.display='none';screenVideo.style.display='block';
+ $('startCapture').disabled=false;$('stopCapture').disabled=true;
+ $('captureStatus').textContent='Captura encerrada';$('captureDot').className='dot';
+ $('resolution').textContent='—';$('frameCount').textContent='0';$('frameRate').textContent='Taxa de quadros: —';
+};
 restoreMarks();
 updateCaptureSupport();
 </script>
