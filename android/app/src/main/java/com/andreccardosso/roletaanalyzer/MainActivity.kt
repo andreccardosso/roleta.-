@@ -34,7 +34,7 @@ class MainActivity : Activity() {
     private var capturing = false
     private var captureBusy = false
     private var lastFrameAt = 0L
-    private val captureIntervalMs = 200L
+    private val captureIntervalMs = 80L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +72,7 @@ class MainActivity : Activity() {
 
         browserView = WebView(this).apply {
             settings.javaScriptEnabled = true
+            addJavascriptInterface(BrowserPageBridge(), "YBrowser")
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
             settings.userAgentString = settings.userAgentString
@@ -159,6 +160,58 @@ class MainActivity : Activity() {
 
     inner class BrowserCaptureBridge {
         @JavascriptInterface
+        fun setMark(mode: String) {
+            val safeMode = mode.filter { it.isLetter() }
+            if (safeMode !in listOf("center", "ball", "wheel")) return
+            runOnUiThread {
+                val script = """
+                    (function(){
+                      window.__yMarkMode = '$safeMode';
+                      if(window.__yMarkHandler) return;
+                      window.__yMarkHandler = function(ev){
+                        if(!window.__yMarkMode) return;
+                        var mode=window.__yMarkMode;
+                        window.__yMarkMode=null;
+                        if(window.YBrowser && window.YBrowser.onBrowserMark){
+                          window.YBrowser.onBrowserMark(mode, ev.clientX/Math.max(1,window.innerWidth), ev.clientY/Math.max(1,window.innerHeight));
+                        }
+                      };
+                      document.addEventListener('click',window.__yMarkHandler,true);
+                    })();
+                """.trimIndent()
+                browserView.evaluateJavascript(script, null)
+            }
+        }
+
+        @JavascriptInterface
+        fun showLaser(x: Double, y: Double) {
+            runOnUiThread {
+                val script = if (x < 0 || y < 0) {
+                    "document.getElementById('__yAnalyzerLaser')?.remove();"
+                } else {
+                    val safeX = x.coerceIn(0.0, 1.0) * 100.0
+                    val safeY = y.coerceIn(0.0, 1.0) * 100.0
+                    """
+                    (function(){
+                      var laser=document.getElementById('__yAnalyzerLaser');
+                      if(!laser){
+                        laser=document.createElement('div');
+                        laser.id='__yAnalyzerLaser';
+                        laser.style.cssText='position:fixed;width:26px;height:26px;border:2px solid #ff3030;border-radius:50%;box-shadow:0 0 8px #ff3030, inset 0 0 6px #ff3030;transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;';
+                        var dot=document.createElement('div');
+                        dot.style.cssText='position:absolute;width:5px;height:5px;background:#ff3030;border-radius:50%;left:50%;top:50%;transform:translate(-50%,-50%);';
+                        laser.appendChild(dot);
+                        document.documentElement.appendChild(laser);
+                      }
+                      laser.style.left='${safeX}vw';
+                      laser.style.top='${safeY}vh';
+                    })();
+                    """.trimIndent()
+                }
+                browserView.evaluateJavascript(script, null)
+            }
+        }
+        @JavascriptInterface
         fun start() {
             runOnUiThread {
                 if (browserView.url.isNullOrBlank()) {
@@ -181,6 +234,21 @@ class MainActivity : Activity() {
                 captureStatus.text = "ANÁLISE: captura pausada"
                 analyzerView.evaluateJavascript(
                     "window.onNativeCaptureStopped && window.onNativeCaptureStopped()", null
+                )
+            }
+        }
+    }
+
+    inner class BrowserPageBridge {
+        @JavascriptInterface
+        fun onBrowserMark(mode: String, x: Double, y: Double) {
+            runOnUiThread {
+                val safeMode = mode.filter { it.isLetter() }
+                if (safeMode !in listOf("center", "ball", "wheel")) return@runOnUiThread
+                val safeX = x.coerceIn(0.0, 1.0)
+                val safeY = y.coerceIn(0.0, 1.0)
+                analyzerView.evaluateJavascript(
+                    "window.onBrowserMark && window.onBrowserMark('$safeMode',$safeX,$safeY)", null
                 )
             }
         }
