@@ -598,17 +598,25 @@ Engine.prototype._end=function(t){
   const zeroRecent=this.zero.ok&&(t-this.zero.seen)<=1.0;
   const checks={enoughSamples:n>=20,enoughDuration:duration>=2,droppedDetected:!!sp.dropped,ballInsideWheel:sp.R[n-1]<0.9,zeroCoverage:freshRatio>=0.55,zeroRecent:zeroRecent};
   const accepted=Object.values(checks).every(Boolean);
-  let opticalMatch=null;
+  let opticalMatch=null,opticalStatus='sem calibração óptica';
   if(opticalCalibration&&Array.isArray(opticalCalibration.pockets)&&opticalCalibration.pockets.length>=8){
-    const finalBallAngle=sp.B[n-1];
-    for(const pocket of opticalCalibration.pockets){
-      if(!pocket||!Number.isInteger(pocket.n)||!Number.isFinite(pocket.angle))continue;
-      const error=Math.abs(wrapPi(finalBallAngle-pocket.angle));
-      if(!opticalMatch||error<opticalMatch.error)opticalMatch={n:pocket.n,index:WHEEL.indexOf(pocket.n),error,confidence:Number(pocket.conf||0)};
+    opticalStatus='posição final instável';
+    const tail=sp.B.slice(Math.max(0,n-5));
+    const stable=tail.length>=4&&(Math.max(...tail)-Math.min(...tail))<=STEP*0.35;
+    if(stable){
+      const finalBallAngle=tail.reduce((sum,a)=>sum+a,0)/tail.length;
+      const candidates=opticalCalibration.pockets
+        .filter(p=>p&&Number.isInteger(p.n)&&Number.isFinite(p.angle)&&Number(p.conf||0)>=35)
+        .map(p=>({n:p.n,index:WHEEL.indexOf(p.n),error:Math.abs(wrapPi(finalBallAngle-p.angle)),confidence:Number(p.conf||0)}))
+        .filter(p=>p.index>=0)
+        .sort((a,b)=>a.error-b.error);
+      const best=candidates[0],second=candidates[1];
+      if(best&&best.error<=STEP*0.45&&(!second||second.error-best.error>=STEP*0.2)){
+        opticalMatch=best;opticalStatus='correspondência óptica consistente';
+      }else opticalStatus='número óptico ambíguo';
     }
-    if(opticalMatch&&(opticalMatch.index<0||opticalMatch.error>STEP*0.65))opticalMatch=null;
   }
-  const e={t:Date.now(),valid:false,kPred:null,w:null,kReal:null,hit:null,res:null,dir:sp.dir,phiDrop:null,phiAct:phiAct,calibration:opticalMatch?'optical-map':'geometric',resultSource:opticalMatch?'optical-map':'geometric',opticalMatch:opticalMatch?{number:opticalMatch.n,error:opticalMatch.error,confidence:opticalMatch.confidence}:null,validation:checks,zeroCoverage:freshRatio};
+  const e={t:Date.now(),valid:false,kPred:null,w:null,kReal:null,hit:null,res:null,dir:sp.dir,phiDrop:null,phiAct:phiAct,calibration:opticalMatch?'optical-map':'geometric',resultSource:opticalMatch?'optical-map':'geometric',opticalStatus:opticalStatus,opticalMatch:opticalMatch?{number:opticalMatch.n,error:opticalMatch.error,confidence:opticalMatch.confidence}:null,validation:checks,zeroCoverage:freshRatio};
   // Associa o ângulo final da bolinha aos números identificados na foto de calibração.
   if(accepted){e.valid=true;e.kReal=opticalMatch?opticalMatch.index:pocketOf(phiAct,this.mirror);}
   if(sp.pred){e.kPred=sp.pred.k;e.w=sp.pred.w;e.phiDrop=sp.pred.phiDrop;
@@ -720,7 +728,7 @@ function renderLastResult(e){
  if(!e){num.textContent='—';num.className='lastResultNumber';detail.textContent='Aguardando a conclusão de um giro';return;}
  if(!e.valid||e.kReal===null||e.kReal===undefined){num.textContent='?';num.className='lastResultNumber';const failed=e.validation?Object.keys(e.validation).filter(k=>!e.validation[k]):[];detail.textContent='Resultado não confirmado'+(failed.length?' · faltou validar '+failed.join(', '):' · rastreamento insuficiente');return;}
  const n=WHEEL[e.kReal];num.textContent=String(n);num.className='lastResultNumber '+pocketClass(n);
- detail.textContent=(e.resultSource==='optical-map'?'Número identificado pela posição dos números lidos na foto':'Estimativa geométrica pelo movimento')+' · '+(e.kPred!==null?(e.hit?'dentro da zona estimada':'fora da zona estimada'):'sem zona de comparação')+'. Confira com o resultado real.';
+ detail.textContent=(e.resultSource==='optical-map'?'Leitura óptica por posição calibrada':'Estimativa geométrica pelo movimento'+(e.opticalStatus?' · óptica: '+e.opticalStatus:''))+' · '+(e.kPred!==null?(e.hit?'dentro da zona estimada':'fora da zona estimada'):'sem zona de comparação')+'. Confira com o resultado real.';
 }
 function renderHistory(){
  const v=hist.spins.filter(e=>e.valid&&e.kPred!==null),hits=v.filter(e=>e.hit).length;
