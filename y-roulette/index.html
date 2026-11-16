@@ -63,6 +63,17 @@ details.setup{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
 details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:12px;padding:5px 0}
 @media(min-width:621px){.numberBoard{grid-template-columns:repeat(12,minmax(0,1fr))}}
 .markActive{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}
+/* Painel manual + dentro de X */
+#crossPicker .numberBoard{grid-template-columns:repeat(6,minmax(0,1fr));}
+#crossPicker .pickNumber{min-height:42px;font-size:16px}
+#crossPicker .pickNumber.selected{outline:3px solid var(--accent);outline-offset:1px}
+#crossPicker .crossOutput{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:12px}
+#crossPicker .crossCell{background:#101923;border:1px solid var(--line);border-radius:9px;padding:9px 5px;text-align:center}
+#crossPicker .crossCell b{display:block;font-size:19px}
+#crossPicker .crossCell small{color:var(--muted);font-size:10px}
+#crossPicker .crossSummary{font-size:14px;font-weight:750;line-height:1.7;overflow-wrap:anywhere}
+@media(max-width:620px){#crossPicker .pickNumber{min-height:34px;font-size:13px}#crossPicker .crossOutput{gap:5px}#crossPicker .crossCell{padding:7px 3px}}
+
 #wheelAreaPanel .status{max-width:100%;white-space:normal}
 .native-embedded #wheelAreaPanel{padding:6px;margin:4px 0}
 .native-embedded #wheelAreaPanel h2{font-size:12px;margin-bottom:4px}
@@ -160,6 +171,19 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <img id="galleryImagePreview" alt="Imagem selecionada da galeria" style="display:none;width:100%;max-height:360px;object-fit:contain;margin-top:10px;border-radius:10px;background:#05080b">
  <p class="hint" id="galleryOcrStatus">Nenhuma imagem selecionada.</p>
  <div class="metric" id="galleryOcrResult" style="display:none;white-space:pre-wrap;word-break:break-word"></div>
+</section>
+
+
+<section class="panel" id="crossPicker">
+ <h2>Painel manual · + dentro de X</h2>
+ <p class="hint">Escolha um número de 1 a 36. O número escolhido será a primeira ponta do +. As outras sete pontas avançam no sentido horário, em intervalos angulares de 45° aproximados pela sequência física da roleta europeia.</p>
+ <div class="numberBoard" id="crossNumberBoard" aria-label="Escolha o número inicial de 1 a 36"></div>
+ <div id="crossResult" style="display:none;margin-top:12px">
+  <div class="status" id="crossSelectedLabel">Número inicial: —</div>
+  <div class="crossOutput" id="crossOutput"></div>
+  <p class="hint" style="margin-top:10px">Ordem das pontas: +1, X1, +2, X2, +3, X3, +4, X4. O zero pode aparecer na lista calculada, mas não é uma opção de número inicial neste painel.</p>
+  <div class="crossSummary" id="crossSummary"></div>
+ </div>
 </section>
 
 <section class="panel" id="numberReference">
@@ -1010,6 +1034,44 @@ $('runGalleryOcr').addEventListener('click',async()=>{
  }catch(err){$('galleryOcrStatus').textContent=err&&err.message?err.message:'Falha ao processar a imagem.';}
  finally{btn.disabled=false;}
 });
+
+
+/* Cálculo manual das oito pontas: 45° no sentido horário.
+   Em 37 casas, os deslocamentos mais próximos são 0,5,9,14,19,23,28,32. */
+const CROSS_WHEEL = [0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+const CROSS_OFFSETS = [0,5,9,14,19,23,28,32];
+const CROSS_LABELS = ['+ 1','X 1','+ 2','X 2','+ 3','X 3','+ 4','X 4'];
+function buildCrossPanel(){
+ const board=$('crossNumberBoard');
+ if(!board)return;
+ for(let n=1;n<=36;n++){
+  const b=document.createElement('button');
+  b.type='button';b.className='pocket '+pocketClass(n)+' pickNumber';
+  b.textContent=String(n);b.dataset.number=String(n);
+  b.setAttribute('aria-label','Selecionar número '+n);
+  board.appendChild(b);
+ }
+ board.addEventListener('click',ev=>{
+  const b=ev.target.closest('button[data-number]');
+  if(!b)return;
+  const start=Number(b.dataset.number),base=CROSS_WHEEL.indexOf(start);
+  if(base<0)return;
+  board.querySelectorAll('.pickNumber').forEach(x=>x.classList.toggle('selected',x===b));
+  const values=CROSS_OFFSETS.map(offset=>CROSS_WHEEL[(base+offset)%CROSS_WHEEL.length]);
+  $('crossSelectedLabel').textContent='Número inicial: '+start+' · sentido horário · 45° por ponta';
+  $('crossOutput').innerHTML='';
+  values.forEach((n,i)=>{
+   const cell=document.createElement('div');cell.className='crossCell';
+   const label=document.createElement('small');label.textContent=CROSS_LABELS[i];
+   const value=document.createElement('b');value.textContent=String(n);
+   value.className='pocket '+pocketClass(n);
+   cell.append(label,value);$('crossOutput').appendChild(cell);
+  });
+  $('crossSummary').textContent='Lista: '+values.join(' – ');
+  $('crossResult').style.display='block';
+ });
+}
+buildCrossPanel();
 
 renderHistory();
 clearPossibleRegion();
