@@ -52,6 +52,29 @@ details.setup{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
 details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:12px;padding:5px 0}
 @media(min-width:621px){.numberBoard{grid-template-columns:repeat(12,minmax(0,1fr))}}
 .markActive{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}
+
+/* Layout compacto quando o analisador roda na metade inferior do APK */
+.native-embedded main{padding:4px 6px 8px}
+.native-embedded header{margin:0 0 4px}
+.native-embedded header h1{font-size:15px}
+.native-embedded header .sub{font-size:10px}
+.native-embedded .tag{font-size:8px;padding:3px 6px}
+.native-embedded .panel{padding:6px;margin:4px 0;border-radius:9px}
+.native-embedded .panel h2{font-size:12px;margin-bottom:5px}
+.native-embedded .videoHint{display:none}
+.native-embedded video,.native-embedded #nativeScreenImage{max-height:9vh!important;min-height:58px!important}
+.native-embedded .row{gap:5px}
+.native-embedded button{font-size:10px;padding:6px 7px}
+.native-embedded .status{font-size:10px;padding:4px 7px}
+.native-embedded .grid{gap:5px}
+.native-embedded .metric{padding:6px}
+.native-embedded .metric .name{font-size:10px}
+.native-embedded .metric .value{font-size:16px}
+.native-embedded .metric .detail{font-size:9px}
+.native-embedded #numberReference,.native-embedded #videoCondition,.native-embedded .foot{display:none}
+.native-embedded details.setup{margin-top:4px;padding-top:4px}
+.native-embedded details.setup summary{font-size:10px;padding:3px 0}
+
 </style>
 </head>
 <body>
@@ -73,7 +96,7 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <p class="videoHint" id="supportStatus">Verificando suporte à captura de tela…</p>
 </section>
 
-<section class="panel">
+<section class="panel" id="videoCondition">
  <h2>Condição do vídeo</h2>
  <div class="grid">
   <div class="metric"><div class="name">Resolução recebida</div><div class="value" id="resolution">—</div><div class="detail">Dimensões reais do vídeo compartilhado</div></div>
@@ -221,6 +244,7 @@ let rateWindowFrames = 0;
 
 function updateCaptureSupport(){
  const nativeSupported = !!window.AndroidCapture;
+ document.body.classList.toggle('native-embedded', nativeSupported);
  const supported = nativeSupported || !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
  $('supportStatus').textContent = nativeSupported
   ? 'Captura nativa Android disponível. Toque no botão e autorize a captura de tela no aviso do sistema.'
