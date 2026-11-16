@@ -1,16 +1,22 @@
 package com.andreccardosso.roletaanalyzer
 
 import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.media.Image
+import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.util.DisplayMetrics
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.view.Gravity
-import android.view.PixelCopy
 import android.view.View
 import android.view.WindowManager
 import android.webkit.CookieManager
@@ -35,10 +41,17 @@ class MainActivity : Activity() {
     private var captureBusy = false
     private var lastFrameAt = 0L
     private val captureIntervalMs = 80L
+    private val projectionRequestCode = 7041
+    private var projectionManager: MediaProjectionManager? = null
+    private var mediaProjection: MediaProjection? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var imageReader: ImageReader? = null
+    private var projectionStarting = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         buildInterface()
     }
 
@@ -309,19 +322,22 @@ class MainActivity : Activity() {
                     analyzerError("Abra primeiro o site da roleta no navegador acima.")
                     return@runOnUiThread
                 }
-                capturing = true
-                captureStatus.text = "ANÁLISE: capturando somente a área do navegador"
-                analyzerView.evaluateJavascript(
-                    "window.onNativeCaptureStarted && window.onNativeCaptureStarted(720,1280)", null
-                )
-                scheduleCapture(0)
+                if (mediaProjection != null || projectionStarting) return@runOnUiThread
+                projectionStarting = true
+                captureStatus.text = "ANÁLISE: aguardando autorização para compartilhar a tela"
+                try {
+                    startActivityForResult(projectionManager!!.createScreenCaptureIntent(), projectionRequestCode)
+                } catch (e: Exception) {
+                    projectionStarting = false
+                    analyzerError("Não foi possível solicitar a captura da tela.")
+                }
             }
         }
 
         @JavascriptInterface
         fun stop() {
             runOnUiThread {
-                capturing = false
+                stopScreenCapture()
                 captureStatus.text = "ANÁLISE: captura pausada"
                 analyzerView.evaluateJavascript(
                     "window.onNativeCaptureStopped && window.onNativeCaptureStopped()", null
@@ -359,59 +375,106 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun scheduleCapture(delay: Long) {
-        handler.postDelayed({
-            if (capturing) captureBrowserFrame()
-        }, delay)
+    @Deprecated("Deprecated in Android API")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != projectionRequestCode) return
+        projectionStarting = false
+        if (resultCode != Activity.RESULT_OK || data == null) {
+            captureStatus.text = "ANÁLISE: compartilhamento cancelado"
+            analyzerError("Autorize o compartilhamento da tela para analisar o vídeo.")
+            return
+        }
+        try {
+            val serviceIntent = Intent(this, CaptureForegroundService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
+            else startService(serviceIntent)
+            handler.postDelayed({
+                try {
+                    val projection = projectionManager!!.getMediaProjection(resultCode, data)
+                    mediaProjection = projection
+                    projection.registerCallback(object : MediaProjection.Callback() {
+                        override fun onStop() {
+                            runOnUiThread { stopScreenCapture() }
+                        }
+                    }, handler)
+                    val metrics = DisplayMetrics()
+                    @Suppress("DEPRECATION")
+                    windowManager.defaultDisplay.getRealMetrics(metrics)
+                    val width = metrics.widthPixels.coerceAtLeast(1)
+                    val height = metrics.heightPixels.coerceAtLeast(1)
+                    imageReader = ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 3)
+                    imageReader!!.setOnImageAvailableListener({ reader ->
+                        val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                        try {
+                            if (capturing && !captureBusy) processScreenImage(image)
+                        } finally {
+                            image.close()
+                        }
+                    }, handler)
+                    virtualDisplay = projection.createVirtualDisplay(
+                        "YAnalyzerCapture", width, height, metrics.densityDpi,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                        imageReader!!.surface, null, handler
+                    )
+                    capturing = true
+                    captureBusy = false
+                    lastFrameAt = 0L
+                    captureStatus.text = "ANÁLISE: vídeo do navegador conectado"
+                    analyzerView.evaluateJavascript(
+                        "window.onNativeCaptureStarted && window.onNativeCaptureStarted(720,1280)", null
+                    )
+                } catch (e: Exception) {
+                    stopScreenCapture()
+                    analyzerError("Falha ao iniciar a captura da tela: " + (e.message ?: "erro desconhecido"))
+                }
+            }, 350L)
+        } catch (e: Exception) {
+            stopScreenCapture()
+            analyzerError("Não foi possível iniciar o serviço de captura.")
+        }
     }
 
-    private fun captureBrowserFrame() {
-        if (!capturing || captureBusy || browserView.width <= 0 || browserView.height <= 0) {
-            if (capturing) scheduleCapture(captureIntervalMs)
-            return
-        }
+    private fun processScreenImage(image: Image) {
         val now = System.currentTimeMillis()
-        if (now - lastFrameAt < captureIntervalMs) {
-            scheduleCapture(captureIntervalMs - (now - lastFrameAt))
-            return
-        }
+        if (now - lastFrameAt < captureIntervalMs) return
         lastFrameAt = now
         captureBusy = true
-
-        val targetWidth = browserView.width
-        val targetHeight = browserView.height
-        val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        try {
+            val plane = image.planes[0]
+            val buffer = plane.buffer
+            val pixelStride = plane.pixelStride
+            val rowStride = plane.rowStride
+            val rowPadding = rowStride - pixelStride * image.width
+            val paddedWidth = image.width + rowPadding / pixelStride
+            val full = Bitmap.createBitmap(paddedWidth, image.height, Bitmap.Config.ARGB_8888)
+            buffer.rewind()
+            full.copyPixelsFromBuffer(buffer)
             val location = IntArray(2)
-            browserView.getLocationInWindow(location)
-            val sourceRect = Rect(
-                location[0], location[1],
-                location[0] + browserView.width, location[1] + browserView.height
-            )
-            PixelCopy.request(window, sourceRect, bitmap, { result ->
-                if (result == PixelCopy.SUCCESS) deliverFrame(bitmap)
-                else {
-                    bitmap.recycle()
-                    captureBusy = false
-                    if (capturing) scheduleCapture(captureIntervalMs)
-                }
-            }, handler)
-        } else {
-            try {
-                val canvas = Canvas(bitmap)
-                canvas.scale(
-                    targetWidth.toFloat() / browserView.width,
-                    targetHeight.toFloat() / browserView.height
-                )
-                browserView.draw(canvas)
-                deliverFrame(bitmap)
-            } catch (_: Exception) {
-                bitmap.recycle()
-                captureBusy = false
-                if (capturing) scheduleCapture(captureIntervalMs)
-            }
+            browserView.getLocationOnScreen(location)
+            val left = location[0].coerceIn(0, full.width - 1)
+            val top = location[1].coerceIn(0, full.height - 1)
+            val right = (location[0] + browserView.width).coerceIn(left + 1, full.width)
+            val bottom = (location[1] + browserView.height).coerceIn(top + 1, full.height)
+            val cropped = Bitmap.createBitmap(full, left, top, right - left, bottom - top)
+            full.recycle()
+            deliverFrame(cropped)
+        } catch (_: Exception) {
+            captureBusy = false
         }
+    }
+
+    private fun stopScreenCapture() {
+        capturing = false
+        captureBusy = false
+        try { virtualDisplay?.release() } catch (_: Exception) {}
+        virtualDisplay = null
+        try { imageReader?.setOnImageAvailableListener(null, null) } catch (_: Exception) {}
+        try { imageReader?.close() } catch (_: Exception) {}
+        imageReader = null
+        try { mediaProjection?.stop() } catch (_: Exception) {}
+        mediaProjection = null
+        try { stopService(Intent(this, CaptureForegroundService::class.java)) } catch (_: Exception) {}
     }
 
     private fun deliverFrame(bitmap: Bitmap) {
@@ -430,7 +493,6 @@ class MainActivity : Activity() {
         } finally {
             bitmap.recycle()
             captureBusy = false
-            if (capturing) scheduleCapture(captureIntervalMs)
         }
     }
 
@@ -448,7 +510,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        capturing = false
+        stopScreenCapture()
         handler.removeCallbacksAndMessages(null)
         if (::browserView.isInitialized) browserView.destroy()
         if (::analyzerView.isInitialized) {
