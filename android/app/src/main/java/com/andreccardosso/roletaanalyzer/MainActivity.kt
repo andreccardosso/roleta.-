@@ -59,6 +59,18 @@ class MainActivity : Activity() {
         }
     }
 
+    @Deprecated("Deprecated in Android API; retained for broad device compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 2026) {
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                startProjection(resultCode, data)
+            } else {
+                webView.evaluateJavascript("window.onNativeCaptureError && window.onNativeCaptureError('Permissão de captura não concedida')", null)
+            }
+        }
+    }
+
     private fun startProjection(resultCode: Int, data: Intent) {
         try {
             val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
