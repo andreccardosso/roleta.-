@@ -63,6 +63,8 @@ video{display:block;width:100%;max-height:520px;object-fit:contain;background:#0
   <button id="markBall">Marcar posição da bola</button>
   <button id="markWheel">Marcar referência da roda</button>
   <button id="clearMarks">Limpar marcações</button>
+  <button class="primary" id="startTracking">Iniciar rastreamento</button>
+  <button id="stopTracking" disabled>Parar rastreamento</button>
  </div>
  <div class="grid" style="margin-top:12px">
   <div class="metric"><div class="name">Centro da mesa</div><div class="detail" id="centerMark">Não marcado</div></div>
@@ -86,7 +88,7 @@ video{display:block;width:100%;max-height:520px;object-fit:contain;background:#0
    <div class="detail" id="wheelState">O rastreamento angular da roda ainda não foi iniciado.</div>
   </div>
  </div>
- <p class="hint" style="margin-top:12px">Os valores de velocidade e rotação só serão exibidos depois que o rastreamento visual estiver implementado e validado nos quadros do vídeo. Esta versão confirma a captura e mede a taxa de quadros recebidos; não inventa velocidades nem prevê resultados.</p>
+ <p class="hint" style="margin-top:12px">O rastreamento experimental procura os detalhes visuais marcados em quadros sucessivos. A bola será medida em pixels por segundo (não m/s, pois falta escala física); a roda será estimada em RPM. Se a imagem mudar ou a referência desaparecer, a leitura será sinalizada como perdida.</p>
 </section>
 
 <p class="foot">O aplicativo trabalha exclusivamente com o vídeo compartilhado. A captura depende do suporte do navegador e da autorização concedida pelo usuário.</p>
@@ -255,6 +257,135 @@ screenVideo.addEventListener('loadedmetadata', () => {
   $('resolution').textContent = screenVideo.videoWidth + ' × ' + screenVideo.videoHeight;
  }
 });
+
+let tracking = false;
+let trackingCallbackId = null;
+let trackingCanvas = document.createElement('canvas');
+let trackingCtx = trackingCanvas.getContext('2d', {willReadFrequently:true});
+let templates = {ball:null,wheel:null};
+let tracked = {ball:null,wheel:null};
+let previousTrackTime = null;
+let ballPixelSpeed = null;
+let wheelAnglePrevious = null;
+let wheelAngleAccum = 0;
+let wheelRpm = null;
+let trackingFrameBusy = false;
+
+function normalizedToCanvas(p){
+ return {x:Math.round(p.x*trackingCanvas.width),y:Math.round(p.y*trackingCanvas.height)};
+}
+function grayPatch(data,w,cx,cy,r=6){
+ const values=[];
+ for(let y=cy-r;y<=cy+r;y++) for(let x=cx-r;x<=cx+r;x++){
+  const i=(y*w+x)*4;
+  values.push((data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114)/255);
+ }
+ return values;
+}
+function captureTemplate(data,w,h,p){
+ const q=normalizedToCanvas(p), r=6;
+ if(q.x<r||q.y<r||q.x>=w-r||q.y>=h-r)return null;
+ return {values:grayPatch(data,w,q.x,q.y,r),x:q.x,y:q.y,r};
+}
+function matchPatch(data,w,h,template,previous){
+ const r=template.r, search=48, step=2;
+ let best=-2,bestX=previous.x,bestY=previous.y;
+ const t=template.values, n=t.length;
+ let meanT=t.reduce((a,b)=>a+b,0)/n;
+ let normT=Math.sqrt(t.reduce((a,b)=>a+(b-meanT)**2,0));
+ if(normT<0.025)return null;
+ for(let cy=Math.max(r,previous.y-search);cy<=Math.min(h-r-1,previous.y+search);cy+=step){
+  for(let cx=Math.max(r,previous.x-search);cx<=Math.min(w-r-1,previous.x+search);cx+=step){
+   const p=grayPatch(data,w,cx,cy,r);
+   const meanP=p.reduce((a,b)=>a+b,0)/n;
+   let numerator=0,normP=0;
+   for(let i=0;i<n;i++){const a=t[i]-meanT,b=p[i]-meanP;numerator+=a*b;normP+=b*b;}
+   const score=normP>0?numerator/(normT*Math.sqrt(normP)):-1;
+   if(score>best){best=score;bestX=cx;bestY=cy;}
+  }
+ }
+ return {x:bestX,y:bestY,confidence:best};
+}
+function trackingStatus(text){$('markStatus').textContent=text;}
+function stopTracking(){
+ tracking=false;
+ if(trackingCallbackId!==null && typeof screenVideo.cancelVideoFrameCallback==='function')screenVideo.cancelVideoFrameCallback(trackingCallbackId);
+ trackingCallbackId=null;
+ $('startTracking').disabled=false;
+ $('stopTracking').disabled=true;
+}
+function trackingFrame(now){
+ if(!tracking||!captureStream||screenVideo.paused)return;
+ if(trackingFrameBusy){trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);return;}
+ trackingFrameBusy=true;
+ try{
+  const vw=screenVideo.videoWidth,vh=screenVideo.videoHeight;
+  if(!vw||!vh)throw new Error('Vídeo sem dimensões.');
+  const scale=Math.min(1,720/vw);
+  trackingCanvas.width=Math.max(1,Math.round(vw*scale));
+  trackingCanvas.height=Math.max(1,Math.round(vh*scale));
+  trackingCtx.drawImage(screenVideo,0,0,trackingCanvas.width,trackingCanvas.height);
+  const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
+  const dt=previousTrackTime===null?0:(now-previousTrackTime)/1000;
+  if(templates.ball&&tracked.ball){
+   const m=matchPatch(frame.data,trackingCanvas.width,trackingCanvas.height,templates.ball,tracked.ball);
+   if(m&&m.confidence>=0.72){
+    if(dt>0){const dx=m.x-tracked.ball.x,dy=m.y-tracked.ball.y;ballPixelSpeed=Math.hypot(dx,dy)/dt;}
+    tracked.ball=m;
+    $('ballSpeed').textContent=ballPixelSpeed===null?'Calculando…':(ballPixelSpeed/scale).toFixed(0)+' px/s';
+    $('ballState').textContent='Referência localizada · confiança '+(m.confidence*100).toFixed(0)+'%';
+   }else{$('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Referência da bola perdida ou com baixa confiança.';ballPixelSpeed=null;}
+  }
+  if(templates.wheel&&tracked.wheel&&marks.center){
+   const m=matchPatch(frame.data,trackingCanvas.width,trackingCanvas.height,templates.wheel,tracked.wheel);
+   if(m&&m.confidence>=0.72){
+    const c=normalizedToCanvas(marks.center);
+    const angle=Math.atan2(m.y-c.y,m.x-c.x);
+    if(wheelAnglePrevious!==null&&dt>0){
+     let delta=angle-wheelAnglePrevious;
+     while(delta>Math.PI)delta-=2*Math.PI;
+     while(delta< -Math.PI)delta+=2*Math.PI;
+     wheelAngleAccum+=delta;
+     wheelRpm=(delta/dt)*60/(2*Math.PI);
+     $('wheelSpeed').textContent=(wheelRpm*1).toFixed(1)+' RPM';
+    }else $('wheelSpeed').textContent='Calculando…';
+    wheelAnglePrevious=angle;tracked.wheel=m;
+    $('wheelState').textContent='Referência localizada · confiança '+(m.confidence*100).toFixed(0)+'%';
+   }else{$('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Referência da roda perdida ou com baixa confiança.';wheelAnglePrevious=null;}
+  }
+  previousTrackTime=now;
+ }catch(e){
+  $('ballSpeed').textContent='Sem leitura';
+  $('ballState').textContent='Não foi possível processar este quadro.';
+  $('wheelSpeed').textContent='Sem leitura';
+  $('wheelState').textContent='Não foi possível processar este quadro.';
+ }finally{trackingFrameBusy=false;}
+ if(tracking&&typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
+}
+function startTracking(){
+ if(!captureStream||screenVideo.readyState<2){trackingStatus('Primeiro compartilhe o vídeo da roleta.');return;}
+ if(!marks.center||!marks.ball||!marks.wheel){trackingStatus('Marque o centro, a bola e uma referência da roda antes de iniciar.');return;}
+ const vw=screenVideo.videoWidth,vh=screenVideo.videoHeight;
+ const scale=Math.min(1,720/vw);
+ trackingCanvas.width=Math.max(1,Math.round(vw*scale));
+ trackingCanvas.height=Math.max(1,Math.round(vh*scale));
+ trackingCtx.drawImage(screenVideo,0,0,trackingCanvas.width,trackingCanvas.height);
+ const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
+ templates.ball=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,marks.ball);
+ templates.wheel=captureTemplate(frame.data,trackingCanvas.width,trackingCanvas.height,marks.wheel);
+ if(!templates.ball||!templates.wheel){trackingStatus('As marcações precisam ficar afastadas das bordas do vídeo.');return;}
+ tracked.ball={x:templates.ball.x,y:templates.ball.y};
+ tracked.wheel={x:templates.wheel.x,y:templates.wheel.y};
+ previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;
+ tracking=true;$('startTracking').disabled=true;$('stopTracking').disabled=false;
+ $('ballSpeed').textContent='Calculando…';$('wheelSpeed').textContent='Calculando…';
+ $('ballState').textContent='Procurando a referência da bola…';$('wheelState').textContent='Procurando a referência da roda…';
+ if(typeof screenVideo.requestVideoFrameCallback==='function')trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);
+ else{stopTracking();trackingStatus('Este navegador não oferece processamento de quadros necessário ao rastreamento.');}
+}
+$('startTracking').addEventListener('click',startTracking);
+$('stopTracking').addEventListener('click',stopTracking);
+
 restoreMarks();
 updateCaptureSupport();
 </script>
