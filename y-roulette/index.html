@@ -268,11 +268,11 @@ function updateCaptureSupport(){
  document.body.classList.toggle('native-embedded', nativeSupported);
  const supported = nativeSupported || !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
  $('supportStatus').textContent = nativeSupported
-  ? 'Captura nativa Android disponível. Toque no botão e autorize a captura de tela no aviso do sistema.'
+  ? 'Pronto para capturar o navegador. Toque em “Compartilhar tela” para iniciar a análise.'
   : supported
    ? 'Captura de tela disponível neste navegador. Toque em “Compartilhar tela” e escolha a janela ou tela do vídeo.'
    : 'Este navegador não oferece captura de tela. Use o APK Android para capturar a tela do aparelho.';
- if(nativeSupported) $('startCapture').textContent='Capturar tela do Android';
+ if(nativeSupported) $('startCapture').textContent='Compartilhar tela';
  $('startCapture').disabled = !supported;
 }
 function stopFrameCounter(){
