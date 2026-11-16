@@ -145,7 +145,6 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setPadding(4, 7, 4, 7)
-            setOnClickListener { togglePanel() }
         }
         panel.addView(panelHeader)
         resultText = TextView(this).apply {
@@ -194,7 +193,7 @@ class MainActivity : Activity() {
             leftMargin = dp(8); topMargin = dp(28)
         }
         root.addView(panel, panelParams)
-        makeDraggable(panel, panelParams)
+        makeDraggable(panelHeader, panel, panelParams)
     }
 
     private fun togglePanel() {
@@ -236,27 +235,34 @@ class MainActivity : Activity() {
             Color.rgb(180, 43, 48) else Color.rgb(35, 43, 52)
     }
 
-    private fun makeDraggable(view: View, params: FrameLayout.LayoutParams) {
+    private fun makeDraggable(handle: View, target: View, params: FrameLayout.LayoutParams) {
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0
-        view.setOnTouchListener { _, event ->
+        var moved = false
+        handle.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.rawX; downY = event.rawY
                     startX = params.leftMargin; startY = params.topMargin
-                    false
+                    moved = false
+                    true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - downX).toInt()
                     val dy = (event.rawY - downY).toInt()
-                    if (kotlin.math.abs(dx) > 8 || kotlin.math.abs(dy) > 8) {
+                    if (kotlin.math.abs(dx) > 8 || kotlin.math.abs(dy) > 8) moved = true
+                    if (moved) {
                         params.gravity = Gravity.TOP or Gravity.LEFT
-                        params.leftMargin = (startX + dx).coerceIn(0, (rootWidth() - view.width).coerceAtLeast(0))
-                        params.topMargin = (startY + dy).coerceIn(0, (rootHeight() - view.height).coerceAtLeast(0))
-                        view.layoutParams = params
-                        true
-                    } else false
+                        params.leftMargin = (startX + dx).coerceIn(0, (rootWidth() - target.width).coerceAtLeast(0))
+                        params.topMargin = (startY + dy).coerceIn(0, (rootHeight() - target.height).coerceAtLeast(0))
+                        target.layoutParams = params
+                    }
+                    true
                 }
-                else -> false
+                MotionEvent.ACTION_UP -> {
+                    if (!moved) togglePanel()
+                    true
+                }
+                else -> true
             }
         }
     }
