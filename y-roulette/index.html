@@ -51,7 +51,7 @@ video{display:block;width:100%;max-height:520px;object-fit:contain;background:#0
 details.setup{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
 details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:12px;padding:5px 0}
 @media(min-width:621px){.numberBoard{grid-template-columns:repeat(12,minmax(0,1fr))}}
-.markActive{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}
+.markActive{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}\n#wheelAreaPanel .status{max-width:100%;white-space:normal}\n.native-embedded #wheelAreaPanel{padding:6px;margin:4px 0}\n.native-embedded #wheelAreaPanel h2{font-size:12px;margin-bottom:4px}\n.native-embedded #wheelAreaPanel .hint{font-size:9px;margin:3px 0}\n.native-embedded #wheelAreaPanel button{font-size:10px;padding:6px 7px}
 
 /* Layout compacto quando o analisador roda na metade inferior do APK */
 .native-embedded main{padding:4px 6px 8px}
@@ -105,6 +105,12 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 </section>
 
 
+
+<section class="panel" id="wheelAreaPanel">
+ <h2>Marcar a área da roleta</h2>
+ <p class="hint">Toque no botão e, na tela grande do navegador, arraste o dedo contornando a borda da roleta. Solte para confirmar o círculo.</p>
+ <div class="row"><button class="primary" id="markWheelArea">Desenhar círculo da roleta</button><span class="status" id="wheelAreaStatus">Área ainda não marcada</span></div>
+</section>
 <details class="setup"><summary>Configuração das marcações visuais</summary>
 <section class="panel" id="visualCalibration">
  <h2>Calibração visual inicial</h2>
@@ -172,7 +178,7 @@ function activeSource(){return nativeCaptureActive ? nativeScreenImage : screenV
 function sourceWidth(){return nativeCaptureActive ? nativeScreenImage.naturalWidth : screenVideo.videoWidth;}
 function sourceHeight(){return nativeCaptureActive ? nativeScreenImage.naturalHeight : screenVideo.videoHeight;}
 
-let markingMode = null;
+let wheelArea = null;\nlet markingMode = null;
 const marks = {center:null, ball:null, wheel:null};
 function displayMark(key){
  const el = $(key+'Mark'), point=marks[key];
@@ -239,7 +245,7 @@ nativeScreenImage.addEventListener('click',handleVideoMarkClick);
 $('markCenter').addEventListener('click',()=>chooseMark('center'));
 $('markBall').addEventListener('click',()=>chooseMark('ball'));
 $('markWheel').addEventListener('click',()=>chooseMark('wheel'));
-$('clearMarks').addEventListener('click',clearMarks);
+$('clearMarks').addEventListener('click',clearMarks);\n$('markWheelArea').addEventListener('click',()=>{\n if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){window.AndroidCapture.setCircleMark();$('wheelAreaStatus').textContent='Agora contorne a roleta na tela grande e solte o dedo.';}\n else $('wheelAreaStatus').textContent='A marcação circular está disponível no APK Android.';\n});
 
 let captureStream = null;
 let frameCallbackId = null;
@@ -489,7 +495,7 @@ function startTracking(){
 $('startTracking').addEventListener('click',startTracking);
 $('stopTracking').addEventListener('click',stopTracking);
 
-window.onBrowserMark=function(mode,x,y){
+window.onBrowserCircle=function(cx,cy,rx,ry){\n wheelArea={cx,cy,rx,ry};\n $('wheelAreaStatus').textContent='Círculo registrado · centro '+(cx*100).toFixed(1)+'% / '+(cy*100).toFixed(1)+'%';\n try{localStorage.setItem('roulette-wheel-area-v1',JSON.stringify(wheelArea));}catch(e){}\n};\ntry{const savedArea=JSON.parse(localStorage.getItem('roulette-wheel-area-v1')||'null');if(savedArea&&['cx','cy','rx','ry'].every(k=>Number.isFinite(savedArea[k]))){wheelArea=savedArea;$('wheelAreaStatus').textContent='Círculo salvo · centro '+(wheelArea.cx*100).toFixed(1)+'% / '+(wheelArea.cy*100).toFixed(1)+'%';}}catch(e){}\nwindow.onBrowserMark=function(mode,x,y){
  if(!marks.hasOwnProperty(mode))return;
  marks[mode]={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};
  displayMark(mode);saveMarks();
