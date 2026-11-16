@@ -24,6 +24,7 @@ video{display:block;width:100%;max-height:520px;object-fit:contain;background:#0
 .metric .name{font-size:13px;color:var(--muted)}.metric .value{font-size:25px;font-weight:800;margin-top:5px}.metric .detail{font-size:12px;color:var(--muted);margin-top:4px}
 .foot{font-size:11px;color:var(--muted);line-height:1.5;margin-top:18px}
 @media(max-width:620px){.grid{grid-template-columns:1fr}.panel{padding:12px}header{align-items:flex-start}.metric .value{font-size:22px}}
+.markActive{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}
 </style>
 </head>
 <body>
@@ -53,6 +54,24 @@ video{display:block;width:100%;max-height:520px;object-fit:contain;background:#0
  </div>
 </section>
 
+
+<section class="panel" id="visualCalibration">
+ <h2>Calibração visual inicial</h2>
+ <p class="hint">Com a captura ativa, marque três referências diretamente no vídeo. Escolha um ponto e toque nele na imagem: centro fixo da mesa, posição da bola e um detalhe identificável da roda. Essas marcações são pontos iniciais para o rastreamento; ainda não representam velocidades medidas.</p>
+ <div class="row">
+  <button id="markCenter">Marcar centro da mesa</button>
+  <button id="markBall">Marcar posição da bola</button>
+  <button id="markWheel">Marcar referência da roda</button>
+  <button id="clearMarks">Limpar marcações</button>
+ </div>
+ <div class="grid" style="margin-top:12px">
+  <div class="metric"><div class="name">Centro da mesa</div><div class="detail" id="centerMark">Não marcado</div></div>
+  <div class="metric"><div class="name">Posição inicial da bola</div><div class="detail" id="ballMark">Não marcada</div></div>
+  <div class="metric"><div class="name">Referência da roda</div><div class="detail" id="wheelMark">Não marcada</div></div>
+  <div class="metric"><div class="name">Próxima ação</div><div class="detail" id="markStatus">Ative a captura e escolha uma marcação.</div></div>
+ </div>
+</section>
+
 <section class="panel">
  <h2>Análise dos movimentos</h2>
  <div class="grid">
@@ -75,6 +94,68 @@ video{display:block;width:100%;max-height:520px;object-fit:contain;background:#0
 <script>
 const $ = id => document.getElementById(id);
 const screenVideo = $('screenVideo');
+
+let markingMode = null;
+const marks = {center:null, ball:null, wheel:null};
+function displayMark(key){
+ const el = $(key+'Mark'), point=marks[key];
+ el.textContent = point ? (point.x*100).toFixed(1)+'% horizontal · '+(point.y*100).toFixed(1)+'% vertical' : 'Não marcado';
+}
+function chooseMark(mode){
+ markingMode=mode;
+ ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
+ const button={center:'markCenter',ball:'markBall',wheel:'markWheel'}[mode];
+ $(button).classList.add('markActive');
+ $('markStatus').textContent='Toque no vídeo para registrar '+({center:'o centro fixo da mesa',ball:'a posição inicial da bola',wheel:'um detalhe visual da roda'}[mode])+'.';
+ screenVideo.style.cursor='crosshair';
+}
+function videoPointFromClick(event){
+ const rect=screenVideo.getBoundingClientRect();
+ const vw=screenVideo.videoWidth,vh=screenVideo.videoHeight;
+ if(!vw||!vh)return null;
+ const scale=Math.min(rect.width/vw,rect.height/vh);
+ const shownW=vw*scale,shownH=vh*scale;
+ const left=rect.left+(rect.width-shownW)/2,top=rect.top+(rect.height-shownH)/2;
+ const px=event.clientX-left,py=event.clientY-top;
+ if(px<0||py<0||px>shownW||py>shownH)return null;
+ return {x:px/shownW,y:py/shownH};
+}
+function saveMarks(){
+ try{localStorage.setItem('roulette-video-marks-v1',JSON.stringify(marks));}catch(e){}
+}
+function restoreMarks(){
+ try{
+  const saved=JSON.parse(localStorage.getItem('roulette-video-marks-v1')||'{}');
+  ['center','ball','wheel'].forEach(k=>{
+   const p=saved[k];
+   if(p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1)marks[k]=p;
+   displayMark(k);
+  });
+ }catch(e){}
+}
+function clearMarks(){
+ marks.center=null;marks.ball=null;marks.wheel=null;
+ ['center','ball','wheel'].forEach(displayMark);
+ saveMarks();markingMode=null;screenVideo.style.cursor='default';
+ ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
+ $('markStatus').textContent='Marcações apagadas. Faça novamente a calibração no vídeo.';
+}
+screenVideo.addEventListener('click',event=>{
+ if(!markingMode)return;
+ const point=videoPointFromClick(event);
+ if(!point){$('markStatus').textContent='Toque dentro da imagem do vídeo, não nas bordas pretas.';return;}
+ marks[markingMode]=point;
+ displayMark(markingMode);saveMarks();
+ const label={center:'Centro da mesa registrado',ball:'Posição inicial da bola registrada',wheel:'Referência da roda registrada'};
+ $('markStatus').textContent=label[markingMode]+'. Escolha outra marcação ou aguarde a próxima etapa.';
+ markingMode=null;screenVideo.style.cursor='default';
+ ['markCenter','markBall','markWheel'].forEach(id=>$(id).classList.remove('markActive'));
+});
+$('markCenter').addEventListener('click',()=>chooseMark('center'));
+$('markBall').addEventListener('click',()=>chooseMark('ball'));
+$('markWheel').addEventListener('click',()=>chooseMark('wheel'));
+$('clearMarks').addEventListener('click',clearMarks);
+
 let captureStream = null;
 let frameCallbackId = null;
 let frameTotal = 0;
@@ -174,6 +255,7 @@ screenVideo.addEventListener('loadedmetadata', () => {
   $('resolution').textContent = screenVideo.videoWidth + ' × ' + screenVideo.videoHeight;
  }
 });
+restoreMarks();
 updateCaptureSupport();
 </script>
 </body>
