@@ -382,7 +382,7 @@ function stopTracking(){
 }
 function trackingFrame(now){
  if(!tracking||!captureStream||(!nativeCaptureActive&&screenVideo.paused))return;
- if(trackingFrameBusy){trackingCallbackId=screenVideo.requestVideoFrameCallback(trackingFrame);return;}
+ if(trackingFrameBusy)return;
  trackingFrameBusy=true;
  try{
   const source=activeSource();
