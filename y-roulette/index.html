@@ -113,7 +113,7 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 
 <section class="panel" id="wheelAreaPanel">
  <h2>Marcar a área da roleta</h2>
- <p class="hint">Toque no botão e, na tela grande do navegador, arraste o dedo contornando a borda da roleta. Solte para confirmar o círculo.</p>
+ <p class="hint">Toque no botão e contorne a roleta na tela grande. Depois use dois dedos como pinça para ajustar o tamanho e arraste com um dedo para centralizar. O zoom da página fica bloqueado.</p>
  <div class="row"><button class="primary" id="markWheelArea">Desenhar círculo da roleta</button><span class="status" id="wheelAreaStatus">Área ainda não marcada</span></div>
 </section>
 <details class="setup"><summary>Configuração das marcações visuais</summary>
@@ -253,7 +253,7 @@ $('markBall').addEventListener('click',()=>chooseMark('ball'));
 $('markWheel').addEventListener('click',()=>chooseMark('wheel'));
 $('clearMarks').addEventListener('click',clearMarks);
 $('markWheelArea').addEventListener('click',()=>{
- if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){window.AndroidCapture.setCircleMark();$('wheelAreaStatus').textContent='Agora contorne a roleta na tela grande e solte o dedo.';}
+ if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){window.AndroidCapture.setCircleMark();$('wheelAreaStatus').textContent='Contorne a roleta; depois ajuste com pinça e arraste para alinhar.';}
  else $('wheelAreaStatus').textContent='A marcação circular está disponível no APK Android.';
 });
 
