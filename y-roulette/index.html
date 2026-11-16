@@ -144,6 +144,22 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
  <div class="numberBoard" id="predictedRegion" style="margin-top:10px"></div>
  <p class="hint">Faixa exploratória: número central e seis vizinhos de cada lado na ordem europeia. Não é previsão garantida; depende da detecção visual e do alinhamento da roda.</p>
 </section>
+
+<section class="panel" id="historyPanel">
+ <h2>Histórico e validação</h2>
+ <div class="grid">
+  <div class="metric"><div class="name">Giros registrados</div><div class="value" id="historyCount">0</div></div>
+  <div class="metric"><div class="name">Acertos na zona</div><div class="value" id="historyRate">—</div><div class="detail" id="chanceRate">Acaso: —</div></div>
+ </div>
+ <div class="row" style="margin-top:10px;align-items:end">
+  <label style="flex:1;min-width:120px;font-size:12px;color:var(--muted)">Número que realmente caiu
+   <input id="actualNumber" type="number" min="0" max="36" inputmode="numeric" placeholder="0 a 36" style="display:block;width:100%;margin-top:5px;padding:10px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);color:var(--text)">
+  </label>
+  <button class="primary" id="saveResult">Registrar resultado</button>
+ </div>
+ <p class="hint" id="historyStatus">A correção manual só fica disponível depois de uma estimativa calculada.</p>
+ <div id="historyList" class="hint" style="max-height:130px;overflow:auto"></div>
+</section>
 <section class="panel">
  <h2>Análise dos movimentos</h2>
  <div class="grid">
@@ -302,6 +318,11 @@ let ballPixelSpeed = null;
 let wheelAnglePrevious = null;
 let wheelAngleAccum = 0;
 let wheelRpm = null;
+let previousFrameData = null;
+let ballAnglePrevious = null, ballAngleUnwrapped = 0, ballOmega = null;
+let zeroAnglePrevious = null, zeroAngleUnwrapped = 0, wheelOmega = null;
+let ballMotionHistory = [];
+let pendingPrediction = null;
 let trackingFrameBusy = false;
 const europeanWheel=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
 function showPossibleRegion(centerIndex,confidence){
@@ -361,43 +382,96 @@ function ellipseCoordinates(x,y){
  const ex=dx*ca+dy*sa,ey=-dx*sa+dy*ca;
  return {radius:Math.hypot(ex/rx,ey/ry),angle:Math.atan2(ey/ry,ex/rx),ex,ey,cx,cy,rx,ry};
 }
+function wrapAngle(a){while(a>Math.PI)a-=2*Math.PI;while(a< -Math.PI)a+=2*Math.PI;return a;}
+function circularMean(points){
+ let sx=0,sy=0,sw=0;
+ for(const p of points){sx+=Math.cos(p.angle)*p.weight;sy+=Math.sin(p.angle)*p.weight;sw+=p.weight;}
+ return sw?Math.atan2(sy,sx):null;
+}
 function detectGreenZero(data,w,h){
  if(!wheelArea)return null;
- let sx=0,sy=0,weight=0,count=0;
- for(let y=2;y<h-2;y+=2)for(let x=2;x<w-2;x+=2){
-  const p=ellipseCoordinates(x,y);if(!p||p.radius<0.38||p.radius>0.98)continue;
+ const points=[];let count=0;
+ for(let y=1;y<h;y+=2)for(let x=1;x<w;x+=2){
+  const q=ellipseCoordinates(x,y);if(!q||q.radius>0.90||q.radius<0.18)continue;
   const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2];
-  if(g>62&&g>r*1.38&&g>b*1.18&&g-r>32){const wt=Math.max(1,g-r);sx+=x*wt;sy+=y*wt;weight+=wt;count++;}
+  if(g-r>35&&g>55&&g>b*1.12){points.push({angle:q.angle,weight:g-r+1});count++;}
  }
- if(count<5||count>1800)return null;
- return {x:sx/weight,y:sy/weight,confidence:Math.min(1,count/35),pixels:count};
+ if(count<5||count>2400)return null;
+ const angle=circularMean(points);
+ if(angle===null)return null;
+ return {angle,confidence:Math.min(1,count/45),pixels:count};
 }
-function detectWhiteBall(data,w,h,previous){
- if(!wheelArea)return null;
- const step=2,gw=Math.ceil(w/step),gh=Math.ceil(h/step),mask=new Uint8Array(gw*gh);
- for(let gy=1;gy<gh-1;gy++)for(let gx=1;gx<gw-1;gx++){
-  const x=gx*step,y=gy*step,p=ellipseCoordinates(x,y);
-  if(!p||p.radius<0.76||p.radius>1.22)continue;
-  const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2],hi=Math.max(r,g,b),lo=Math.min(r,g,b);
-  if(hi>188&&hi-lo<58&&((r+g+b)/3)>190)mask[gy*gw+gx]=1;
+function detectMovingBall(data,w,h,oldData,previousAngle,predictedDelta){
+ if(!wheelArea||!oldData||oldData.length!==data.length)return null;
+ const bins=120,hist=new Float32Array(bins),sumX=new Float32Array(bins),sumY=new Float32Array(bins),sumRho=new Float32Array(bins);
+ for(let y=2;y<h-2;y+=2)for(let x=2;x<w-2;x+=2){
+  const q=ellipseCoordinates(x,y);if(!q||q.radius<=1.05||q.radius>1.42)continue;
+  const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2];
+  const hi=Math.max(r,g,b),lo=Math.min(r,g,b),Y=.299*r+.587*g+.114*b;
+  const oldY=.299*oldData[i]+.587*oldData[i+1]+.114*oldData[i+2];
+  if(Y<185||Y-oldY<45||hi-lo>=70)continue;
+  const a=(q.angle+Math.PI)/(2*Math.PI),bin=((Math.floor(a*bins)%bins)+bins)%bins;
+  hist[bin]++;sumX[bin]+=x;sumY[bin]+=y;sumRho[bin]+=q.radius;
  }
- const seen=new Uint8Array(mask.length);let best=null,bestScore=-1;
- for(let i=0;i<mask.length;i++){
-  if(!mask[i]||seen[i])continue;
-  const stack=[i];seen[i]=1;let n=0,sx=0,sy=0;
-  while(stack.length){
-   const q=stack.pop(),gx=q%gw,gy=(q/gw)|0;n++;sx+=gx;sy+=gy;
-   for(let yy=Math.max(0,gy-1);yy<=Math.min(gh-1,gy+1);yy++)for(let xx=Math.max(0,gx-1);xx<=Math.min(gw-1,gx+1);xx++){
-    const z=yy*gw+xx;if(mask[z]&&!seen[z]){seen[z]=1;stack.push(z);}
-   }
+ const smooth=new Float32Array(bins);
+ for(let i=0;i<bins;i++)smooth[i]=(hist[(i+bins-1)%bins]+hist[i]+hist[(i+1)%bins])/3;
+ let peaks=[];
+ for(let i=0;i<bins;i++){
+  const left=smooth[(i+bins-1)%bins],right=smooth[(i+1)%bins];
+  if(smooth[i]>=8&&smooth[i]>=left&&smooth[i]>=right){
+   const raw=hist[(i+bins-1)%bins]+hist[i]+hist[(i+1)%bins];
+   if(raw<8)continue;
+   let sx=0,sy=0,sr=0,weight=0;
+   for(let d=-1;d<=1;d++){const j=(i+d+bins)%bins;sx+=sumX[j];sy+=sumY[j];sr+=sumRho[j];weight+=hist[j];}
+   if(weight)peaks.push({angle:wrapAngle((i+.5)/bins*2*Math.PI-Math.PI),x:sx/weight,y:sy/weight,rho:sr/weight,confidence:Math.min(1,weight/24),pixels:weight});
   }
-  if(n<1||n>45)continue;
-  const x=sx/n*step,y=sy/n*step;
-  const score=previous?n*2-Math.hypot(x-previous.x,y-previous.y)*0.035:n-Math.abs(n-8)*0.12;
-  if(score>bestScore){bestScore=score;best={x,y,confidence:Math.min(1,n/8),pixels:n};}
  }
- return best;
+ if(!peaks.length)return null;
+ const expected=previousAngle===null?null:wrapAngle(previousAngle+(predictedDelta||0));
+ peaks.sort((a,b)=>{
+  const sa=a.pixels*(expected===null?1:1/(.25+Math.abs(wrapAngle(a.angle-expected))));
+  const sb=b.pixels*(expected===null?1:1/(.25+Math.abs(wrapAngle(b.angle-expected))));
+  return sb-sa;
+ });
+ return peaks[0];
 }
+function linearSlope(samples){
+ if(samples.length<5)return null;
+ const t0=samples[0].t;
+ let sx=0,sy=0,sxx=0,sxy=0,n=samples.length;
+ for(const p of samples){const x=p.t-t0;sx+=x;sy+=p.v;sxx+=x*x;sxy+=x*p.v;}
+ const den=n*sxx-sx*sx;return Math.abs(den)<1e-8?null:(n*sxy-sx*sy)/den;
+}
+function loadHistory(){try{return JSON.parse(localStorage.getItem('roulette-spin-history-v1')||'[]');}catch(e){return [];}}
+function renderHistory(){
+ const h=loadHistory(),n=h.length,ok=h.filter(x=>x.hit).length,avgW=n?h.reduce((a,x)=>a+x.w,0)/n:6;
+ $('historyCount').textContent=String(n);
+ $('historyRate').textContent=n?(ok/n*100).toFixed(1)+'%':'—';
+ $('chanceRate').textContent=n?'Acaso médio estimado: '+((2*avgW+1)/37*100).toFixed(1)+'%':'Acaso: —';
+ $('historyList').textContent=h.slice(-8).reverse().map(x=>'Previsto '+x.predicted+' · caiu '+x.actual+' · '+(x.hit?'acertou':'errou')+' · zona ±'+x.w).join(' | ');
+}
+function showPrediction(center,w,confidence,seconds){
+ const c=((center%37)+37)%37,dir=1,nums=[];
+ for(let k=-w;k<=w;k++)nums.push(europeanWheel[(c+k*dir+370)%37]);
+ $('regionCenter').textContent=String(europeanWheel[c]);
+ $('regionStatus').textContent='Estimativa experimental · ±'+w+' casas · queda em '+seconds.toFixed(2)+' s · confiança visual '+Math.round(confidence*100)+'%';
+ $('predictedRegion').innerHTML=nums.map((n,i)=>'<div class="pocket '+(n===0?'green':([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36].includes(n)?'red':'black'))+'" style="'+(i===w?'outline:2px solid #f3d58d;':'')+'">'+n+'</div>').join('');
+ pendingPrediction={predicted:europeanWheel[c],w,confidence,created:Date.now()};
+ $('historyStatus').textContent='Estimativa pronta para ser comparada com o resultado real.';
+}
+function recordActual(){
+ const actual=Number($('actualNumber').value);
+ if(!Number.isInteger(actual)||actual<0||actual>36){$('historyStatus').textContent='Digite um número inteiro entre 0 e 36.';return;}
+ if(!pendingPrediction){$('historyStatus').textContent='Ainda não existe uma estimativa válida para registrar.';return;}
+ const index=n=>europeanWheel.indexOf(n);
+ const distance=Math.min((index(actual)-index(pendingPrediction.predicted)+37)%37,(index(pendingPrediction.predicted)-index(actual)+37)%37);
+ const h=loadHistory();h.push({...pendingPrediction,actual,hit:distance<=pendingPrediction.w,residual:distance,at:new Date().toISOString()});
+ try{localStorage.setItem('roulette-spin-history-v1',JSON.stringify(h.slice(-300)));}catch(e){}
+ pendingPrediction=null;$('actualNumber').value='';$('historyStatus').textContent='Resultado registrado. A taxa será comparada com a taxa esperada ao acaso.';
+ renderHistory();
+}
+$('saveResult').addEventListener('click',recordActual);
+renderHistory();
 function stopTracking(){
  tracking=false;
  if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(-1,-1);
@@ -416,34 +490,49 @@ function trackingFrame(now){
   const scale=Math.min(1,720/vw);
   trackingCanvas.width=Math.max(1,Math.round(vw*scale));trackingCanvas.height=Math.max(1,Math.round(vh*scale));
   trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
-  const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height),dt=previousTrackTime===null?0:(now-previousTrackTime)/1000;
+  const frame=trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
+  const dt=previousTrackTime===null?0:(now-previousTrackTime)/1000;
   const green=detectGreenZero(frame.data,trackingCanvas.width,trackingCanvas.height);
+  const ball=detectMovingBall(frame.data,trackingCanvas.width,trackingCanvas.height,previousFrameData,ballAnglePrevious,ballOmega&&dt?ballOmega*dt:0);
   if(green){
-   const angle=Math.atan2(green.y-wheelArea.cy*trackingCanvas.height,green.x-wheelArea.cx*trackingCanvas.width);
-   if(wheelAnglePrevious!==null&&dt>0){
-    let delta=angle-wheelAnglePrevious;while(delta>Math.PI)delta-=2*Math.PI;while(delta< -Math.PI)delta+=2*Math.PI;
-    wheelRpm=(delta/dt)*60/(2*Math.PI);$('wheelSpeed').textContent=Math.abs(wheelRpm).toFixed(1)+' RPM';
+   if(zeroAnglePrevious!==null&&dt>0){
+    const d=wrapAngle(green.angle-zeroAnglePrevious);zeroAngleUnwrapped+=d;wheelOmega=.8*(wheelOmega||d/dt)+.2*(d/dt);
+    wheelRpm=wheelOmega*60/(2*Math.PI);$('wheelSpeed').textContent=Math.abs(wheelRpm).toFixed(1)+' RPM';
    }else $('wheelSpeed').textContent='Calculando…';
-   wheelAnglePrevious=angle;$('wheelState').textContent='Zero verde detectado · '+green.pixels+' pixels';
-  }else{$('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Não encontrei o setor verde dentro da área marcada.';wheelAnglePrevious=null;}
-  const ball=detectWhiteBall(frame.data,trackingCanvas.width,trackingCanvas.height,tracked.ball);
-  if(green&&ball){
-   const gp=ellipseCoordinates(green.x,green.y),bp=ellipseCoordinates(ball.x,ball.y);
-   if(gp&&bp){
-    let relative=bp.angle-gp.angle;
-    while(relative>Math.PI)relative-=2*Math.PI;while(relative< -Math.PI)relative+=2*Math.PI;
-    const slot=Math.round(relative/(2*Math.PI/37));
-    showPossibleRegion((slot+37)%37,Math.min(green.confidence,ball.confidence));
-   }
-  }else clearPossibleRegion(green?'Zero verde detectado; aguardando bolinha.':'Aguardando detectar o zero verde.');
-
+   zeroAnglePrevious=green.angle;$('wheelState').textContent='Zero verde detectado · '+green.pixels+' pixels';
+  }else{$('wheelSpeed').textContent='Sem leitura';$('wheelState').textContent='Zero verde não localizado com confiança.';}
   if(ball){
-   if(tracked.ball&&dt>0)ballPixelSpeed=Math.hypot(ball.x-tracked.ball.x,ball.y-tracked.ball.y)/dt;
-   tracked.ball=ball;
+   if(ballAnglePrevious!==null&&dt>0){
+    const d=wrapAngle(ball.angle-ballAnglePrevious);
+    ballAngleUnwrapped+=d;ballOmega=d/dt;
+    ballMotionHistory.push({t:now/1000,v:Math.abs(ballOmega)});
+    ballMotionHistory=ballMotionHistory.filter(p=>p.t>now/1000-3).slice(-100);
+   }else{ballAngleUnwrapped=ball.angle;ballMotionHistory=[];}
+   ballAnglePrevious=ball.angle;tracked.ball=ball;
+   $('ballSpeed').textContent=ballOmega===null?'Calculando…':Math.abs(ballOmega).toFixed(2)+' rad/s';
+   $('ballState').textContent='Pico angular detectado · '+ball.pixels.toFixed(0)+' pixels · rho '+ball.rho.toFixed(2);
    if(nativeCaptureActive&&window.AndroidCapture&&window.AndroidCapture.showLaser)window.AndroidCapture.showLaser(ball.x/trackingCanvas.width,ball.y/trackingCanvas.height);
-   $('ballSpeed').textContent=ballPixelSpeed===null?'Calculando…':(ballPixelSpeed/scale).toFixed(0)+' px/s';
-   $('ballState').textContent='Bolinha detectada · confiança '+(ball.confidence*100).toFixed(0)+'%';
-  }else{$('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Bolinha não localizada na borda da área marcada.';ballPixelSpeed=null;}
+  }else{
+   $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Aguardando pico móvel consistente na pista externa.';
+  }
+  if(green&&ball&&ballOmega!==null&&wheelOmega!==null&&ballMotionHistory.length>=8){
+   const slope=linearSlope(ballMotionHistory);
+   const speed=Math.abs(ballOmega),vCrit=7.5;
+   if(slope!==null&&slope< -0.03&&speed>vCrit){
+    const D=(speed-vCrit)/(-slope);
+    if(D>0&&D<12){
+     const dir=Math.sign(ballOmega)||1;
+     const relativeNow=ballAngleUnwrapped-zeroAngleUnwrapped;
+     const projected=relativeNow+dir*(speed*D+.5*slope*D*D)-wheelOmega*D;
+     const sector=2*Math.PI/37;
+     const center=Math.round(projected/sector);
+     const recent=ballMotionHistory.length;
+     const confidence=Math.min(green.confidence,ball.confidence,Math.min(1,recent/25));
+     showPrediction(center,6,confidence,D);
+    }else clearPossibleRegion('Estimativa de queda fora da janela confiável.');
+   }else clearPossibleRegion('Rastreio ativo; aguardando desaceleração mensurável e velocidade crítica.');
+  }else clearPossibleRegion('Aguardando zero, bolinha e histórico angular suficiente.');
+  previousFrameData=new Uint8ClampedArray(frame.data);
   previousTrackTime=now;
  }catch(e){
   $('ballSpeed').textContent='Sem leitura';$('ballState').textContent='Falha ao analisar o quadro.';
@@ -459,7 +548,7 @@ function startTracking(){
  trackingCanvas.width=Math.max(1,Math.round(vw*scale));trackingCanvas.height=Math.max(1,Math.round(vh*scale));
  trackingCtx.drawImage(source,0,0,trackingCanvas.width,trackingCanvas.height);
  trackingCtx.getImageData(0,0,trackingCanvas.width,trackingCanvas.height);
- tracked.ball=null;previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;
+ tracked.ball=null;previousTrackTime=null;ballPixelSpeed=null;wheelAnglePrevious=null;wheelAngleAccum=0;wheelRpm=null;previousFrameData=null;ballAnglePrevious=null;ballAngleUnwrapped=0;ballOmega=null;zeroAnglePrevious=null;zeroAngleUnwrapped=0;wheelOmega=null;ballMotionHistory=[];pendingPrediction=null;clearPossibleRegion();
  tracking=true;$('startTracking').disabled=true;$('stopTracking').disabled=false;
  $('ballSpeed').textContent='Procurando…';$('wheelSpeed').textContent='Procurando…';
  $('ballState').textContent='Detectando a bolinha automaticamente…';$('wheelState').textContent='Detectando o zero verde automaticamente…';
