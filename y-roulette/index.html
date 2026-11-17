@@ -63,6 +63,10 @@ details.setup{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
 details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:12px;padding:5px 0}
 @media(min-width:621px){.numberBoard{grid-template-columns:repeat(12,minmax(0,1fr))}}
 .markActive{border-color:var(--accent);box-shadow:0 0 0 2px #e4b85d33}
+.yMarkControls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:9px}
+.yMarkControls button{font-size:11px;padding:8px 5px;white-space:normal}
+.yMarkStatus{font-size:11px;color:var(--muted);line-height:1.5;margin-top:7px}
+.native-embedded .yMarkControls button{font-size:9px;padding:5px 3px}
 /* Painel manual + dentro de X */
 #crossPicker .numberBoard{grid-template-columns:repeat(6,minmax(0,1fr));}
 #crossPicker .pickNumber{min-height:42px;font-size:16px}
@@ -144,6 +148,17 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
    <button type="button" id="wheelLeft" title="Mover para esquerda" aria-label="Mover para esquerda">←</button>
    <button type="button" id="wheelRight" title="Mover para direita" aria-label="Mover para direita">→</button>
    <span class="hint">Cada toque move 0,5% da imagem.</span>
+  </div>
+  <div class="metric" id="yReferencePanel" style="margin-top:10px">
+   <div class="name">Calibração visual do Y · referências manuais</div>
+   <p class="hint">Marque os três pontos diretamente no vídeo: A à frente do crupiê, B à esquerda do crupiê e C à direita do crupiê.</p>
+   <div class="yMarkControls">
+    <button type="button" id="markY_A">Marcar A · frente</button>
+    <button type="button" id="markY_B">Marcar B · esquerda</button>
+    <button type="button" id="markY_C">Marcar C · direita</button>
+   </div>
+   <div class="row" style="margin-top:8px"><button type="button" id="clearYMarks">Limpar A/B/C</button><span class="yMarkStatus" id="yMarkStatus">0 de 3 referências marcadas.</span></div>
+   <p class="hint" style="margin-top:7px">Os pontos coloridos e as letras aparecem sobre o vídeo e ficam salvos neste aparelho. Nesta etapa, A/B/C são selecionados manualmente; ainda não há reconhecimento automático do crupiê nem dos sensores.</p>
   </div>
   <div class="row" style="margin-top:10px"><button class="primary" id="startTracking">Iniciar rastreio automático</button><button id="stopTracking" disabled>Parar rastreio</button></div>
   <p class="hint">Marque a área oval da roleta (a borda do círculo deve ficar no aro logo depois dos números) e toque em iniciar. O analisador localiza o zero verde e a bolinha sem marcações manuais.</p>
@@ -269,17 +284,29 @@ function sourceWidth(){return nativeCaptureActive ? nativeScreenImage.naturalWid
 function sourceHeight(){return nativeCaptureActive ? nativeScreenImage.naturalHeight : screenVideo.videoHeight;}
 
 let wheelArea = null;
+let yMarks = {A:null,B:null,C:null};
+let yMarkMode = null;
+const Y_MARKS_KEY = 'roulette-y-marks-v1';
+try{
+ const savedYMarks=JSON.parse(localStorage.getItem(Y_MARKS_KEY)||'null');
+ if(savedYMarks&&typeof savedYMarks==='object'){
+  ['A','B','C'].forEach(k=>{
+   const p=savedYMarks[k];
+   if(p&&Number.isFinite(p.x)&&Number.isFinite(p.y))yMarks[k]={x:Math.min(1,Math.max(0,p.x)),y:Math.min(1,Math.max(0,p.y))};
+  });
+ }
+}catch(e){}
 const wheelMarkLayer = $('wheelMarkLayer');
 const wheelMarkCtx = wheelMarkLayer.getContext('2d');
 let wheelMarking = false, wheelDrag = null;
 function displayedVideoRect(){
- const r=screenVideo.getBoundingClientRect(), vw=sourceWidth(), vh=sourceHeight();
+ const target=activeSource(),r=target.getBoundingClientRect(),vw=sourceWidth(),vh=sourceHeight();
  if(!vw||!vh||!r.width||!r.height)return null;
  const scale=Math.min(r.width/vw,r.height/vh), w=vw*scale, h=vh*scale;
  return {left:(r.width-w)/2,top:(r.height-h)/2,width:w,height:h,box:r,vw,vh};
 }
 function resizeWheelLayer(){
- const r=screenVideo.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+ const r=activeSource().getBoundingClientRect(),dpr=window.devicePixelRatio||1;
  wheelMarkLayer.width=Math.max(1,Math.round(r.width*dpr));
  wheelMarkLayer.height=Math.max(1,Math.round(r.height*dpr));
  wheelMarkCtx.setTransform(dpr,0,0,dpr,0,0);
@@ -289,11 +316,44 @@ function drawWheelMark(preview){
  const r=displayedVideoRect();if(!r)return;
  const dpr=window.devicePixelRatio||1;
  wheelMarkCtx.clearRect(0,0,wheelMarkLayer.width/dpr,wheelMarkLayer.height/dpr);
- const a=preview||wheelArea;if(!a)return;
- wheelMarkCtx.save();wheelMarkCtx.strokeStyle='#fff';wheelMarkCtx.lineWidth=2;wheelMarkCtx.setLineDash([8,5]);
- wheelMarkCtx.beginPath();
- wheelMarkCtx.ellipse(r.left+a.cx*r.width,r.top+a.cy*r.height,Math.max(2,a.rx*r.width),Math.max(2,a.ry*r.height),Number(a.rotation||0),0,Math.PI*2);
- wheelMarkCtx.stroke();wheelMarkCtx.restore();
+ const a=preview||wheelArea;
+ if(a){
+  wheelMarkCtx.save();wheelMarkCtx.strokeStyle='#fff';wheelMarkCtx.lineWidth=2;wheelMarkCtx.setLineDash([8,5]);
+  wheelMarkCtx.beginPath();
+  wheelMarkCtx.ellipse(r.left+a.cx*r.width,r.top+a.cy*r.height,Math.max(2,a.rx*r.width),Math.max(2,a.ry*r.height),Number(a.rotation||0),0,Math.PI*2);
+  wheelMarkCtx.stroke();wheelMarkCtx.restore();
+ }
+ const colors={A:'#e4b85d',B:'#45b7e5',C:'#c77dff'};
+ wheelMarkCtx.save();wheelMarkCtx.setLineDash([]);wheelMarkCtx.font='bold 14px system-ui';wheelMarkCtx.textAlign='center';
+ ['A','B','C'].forEach(k=>{
+  const p=yMarks[k];if(!p)return;
+  const x=r.left+p.x*r.width,y=r.top+p.y*r.height;
+  wheelMarkCtx.beginPath();wheelMarkCtx.arc(x,y,8,0,Math.PI*2);
+  wheelMarkCtx.fillStyle=colors[k];wheelMarkCtx.fill();
+  wheelMarkCtx.lineWidth=2;wheelMarkCtx.strokeStyle='#fff';wheelMarkCtx.stroke();
+  wheelMarkCtx.fillStyle='#fff';wheelMarkCtx.shadowColor='#000';wheelMarkCtx.shadowBlur=4;
+  wheelMarkCtx.fillText(k,x,y-13);
+ });
+ wheelMarkCtx.restore();
+}
+function renderYMarkStatus(){
+ const count=['A','B','C'].filter(k=>!!yMarks[k]).length;
+ const parts=['A','B','C'].map(k=>k+': '+(yMarks[k]?'marcado':'pendente'));
+ $('yMarkStatus').textContent=count+' de 3 referências marcadas · '+parts.join(' · ');
+}
+function setYMark(letter,p){
+ yMarks[letter]={x:p.x,y:p.y};
+ try{localStorage.setItem(Y_MARKS_KEY,JSON.stringify(yMarks));}catch(e){}
+ renderYMarkStatus();drawWheelMark();
+}
+function armYMark(letter){
+ if(!captureStream||!sourceWidth()||!sourceHeight()){
+  $('yMarkStatus').textContent='Compartilhe primeiro o vídeo da roleta para marcar '+letter+'.';return;
+ }
+ wheelMarking=false;wheelDrag=null;yMarkMode=letter;
+ resizeWheelLayer();wheelMarkLayer.classList.add('active');
+ const label=letter==='A'?'à frente do crupiê':(letter==='B'?'à esquerda do crupiê':'à direita do crupiê');
+ $('yMarkStatus').textContent='Toque exatamente no ponto '+letter+' ('+label+') dentro do vídeo.';
 }
 function setWheelArea(a){
  wheelArea=a;
@@ -310,7 +370,16 @@ $('wheelUp').addEventListener('click',()=>nudgeWheelArea(0,-0.005));
 $('wheelDown').addEventListener('click',()=>nudgeWheelArea(0,0.005));
 $('wheelLeft').addEventListener('click',()=>nudgeWheelArea(-0.005,0));
 $('wheelRight').addEventListener('click',()=>nudgeWheelArea(0.005,0));
+$('markY_A').addEventListener('click',()=>armYMark('A'));
+$('markY_B').addEventListener('click',()=>armYMark('B'));
+$('markY_C').addEventListener('click',()=>armYMark('C'));
+$('clearYMarks').addEventListener('click',()=>{
+ yMarks={A:null,B:null,C:null};yMarkMode=null;
+ try{localStorage.removeItem(Y_MARKS_KEY);}catch(e){}
+ wheelMarkLayer.classList.remove('active');renderYMarkStatus();drawWheelMark();
+});
 $('markWheelArea').addEventListener('click',()=>{
+ yMarkMode=null;
  if(window.AndroidCapture&&typeof window.AndroidCapture.setCircleMark==='function'){
   window.AndroidCapture.setCircleMark();
   $('wheelAreaStatus').textContent='Contorne a roleta; ajuste com pinça e arraste para centralizar.';
@@ -330,6 +399,11 @@ function wheelPointerPosition(e){
  return {x:x/r.width,y:y/r.height};
 }
 wheelMarkLayer.addEventListener('pointerdown',e=>{
+ if(yMarkMode){
+  const p=wheelPointerPosition(e);if(!p)return;
+  const letter=yMarkMode;yMarkMode=null;setYMark(letter,p);
+  wheelMarkLayer.classList.remove('active');e.preventDefault();return;
+ }
  if(!wheelMarking)return;
  const p=wheelPointerPosition(e);if(!p)return;
  wheelDrag={start:p,end:p};wheelMarkLayer.setPointerCapture(e.pointerId);drawWheelMark({cx:p.x,cy:p.y,rx:0,ry:0});
@@ -946,7 +1020,7 @@ window.onNativeFrame=function(dataUrl,width,height){
  const now=performance.now();if(!nativeRateStart)nativeRateStart=now;
  if(now-nativeRateStart>=1000){$('frameRate').textContent='Taxa recebida: '+(nativeFrames*1000/(now-nativeRateStart)).toFixed(1)+' quadros/s';nativeFrames=0;nativeRateStart=now;}
  const tRecv=now;
- nativeScreenImage.onload=function(){if(tracking)trackingFrame(tRecv);};
+ nativeScreenImage.onload=function(){resizeWheelLayer();if(tracking)trackingFrame(tRecv);};
  nativeScreenImage.src=dataUrl;
 };
 window.onNativeCaptureError=function(message){$('captureStatus').textContent=message;$('captureDot').className='dot red';};
@@ -1072,6 +1146,8 @@ function buildCrossPanel(){
  });
 }
 buildCrossPanel();
+renderYMarkStatus();
+drawWheelMark();
 
 renderHistory();
 clearPossibleRegion();
