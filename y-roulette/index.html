@@ -67,6 +67,16 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
 .yMarkControls button{font-size:11px;padding:8px 5px;white-space:normal}
 .yMarkStatus{font-size:11px;color:var(--muted);line-height:1.5;margin-top:7px}
 .native-embedded .yMarkControls button{font-size:9px;padding:5px 3px}
+.yGeometry{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:8px}
+.yGeometryItem{min-width:0;background:#101923;border:1px solid var(--line);border-radius:8px;padding:7px 5px;text-align:center}
+.yGeometryItem b{display:block;font-size:12px;color:var(--text)}
+.yGeometryItem small{display:block;margin-top:3px;font-size:10px;color:var(--muted);line-height:1.3}
+.yGeometryNote{grid-column:1/-1;font-size:10px;color:var(--muted);line-height:1.4}
+@media(max-width:620px){.yGeometryItem{padding:6px 3px}.yGeometryItem b{font-size:11px}.yGeometryItem small{font-size:9px}}
+.native-embedded .yGeometry{gap:3px;margin-top:4px}
+.native-embedded .yGeometryItem{padding:4px 2px}
+.native-embedded .yGeometryItem b{font-size:9px}
+.native-embedded .yGeometryItem small,.native-embedded .yGeometryNote{font-size:8px}
 /* Painel manual + dentro de X */
 #crossPicker .numberBoard{grid-template-columns:repeat(6,minmax(0,1fr));}
 #crossPicker .pickNumber{min-height:42px;font-size:16px}
@@ -158,7 +168,8 @@ details.setup summary{cursor:pointer;color:var(--accent);font-weight:700;font-si
     <button type="button" id="markY_C">Marcar C · direita</button>
    </div>
    <div class="row" style="margin-top:8px"><button type="button" id="clearYMarks">Limpar A/B/C</button><span class="yMarkStatus" id="yMarkStatus">0 de 3 referências marcadas.</span></div>
-   <p class="hint" style="margin-top:7px">Os pontos coloridos e as letras aparecem sobre o vídeo e ficam salvos neste aparelho. Nesta etapa, A/B/C são selecionados manualmente; ainda não há reconhecimento automático do crupiê nem dos sensores.</p>
+   <div class="yGeometry" id="yGeometry" aria-live="polite"><div class="yGeometryNote">Marque a área oval e os três pontos para calcular a geometria visual.</div></div>
+   <p class="hint" style="margin-top:7px">Os pontos coloridos e as letras aparecem sobre o vídeo e ficam salvos neste aparelho. Ângulos e distâncias são calculados manualmente a partir do oval marcado; isso não reconhece o crupiê nem os sensores.</p>
   </div>
   <div class="row" style="margin-top:10px"><button class="primary" id="startTracking">Iniciar rastreio automático</button><button id="stopTracking" disabled>Parar rastreio</button></div>
   <p class="hint">Marque a área oval da roleta (a borda do círculo deve ficar no aro logo depois dos números) e toque em iniciar. O analisador localiza o zero verde e a bolinha sem marcações manuais.</p>
@@ -324,6 +335,16 @@ function drawWheelMark(preview){
   wheelMarkCtx.stroke();wheelMarkCtx.restore();
  }
  const colors={A:'#e4b85d',B:'#45b7e5',C:'#c77dff'};
+ if(wheelArea){
+  const cx=r.left+wheelArea.cx*r.width,cy=r.top+wheelArea.cy*r.height;
+  wheelMarkCtx.save();wheelMarkCtx.strokeStyle='rgba(255,255,255,.62)';wheelMarkCtx.lineWidth=1.5;wheelMarkCtx.setLineDash([5,4]);
+  ['A','B','C'].forEach(k=>{
+   const p=yMarks[k];if(!p)return;
+   wheelMarkCtx.beginPath();wheelMarkCtx.moveTo(cx,cy);wheelMarkCtx.lineTo(r.left+p.x*r.width,r.top+p.y*r.height);wheelMarkCtx.stroke();
+  });
+  wheelMarkCtx.setLineDash([]);wheelMarkCtx.beginPath();wheelMarkCtx.arc(cx,cy,4,0,Math.PI*2);wheelMarkCtx.fillStyle='#fff';wheelMarkCtx.fill();
+  wheelMarkCtx.restore();
+ }
  wheelMarkCtx.save();wheelMarkCtx.setLineDash([]);wheelMarkCtx.font='bold 14px system-ui';wheelMarkCtx.textAlign='center';
  ['A','B','C'].forEach(k=>{
   const p=yMarks[k];if(!p)return;
@@ -337,9 +358,38 @@ function drawWheelMark(preview){
  wheelMarkCtx.restore();
 }
 function renderYMarkStatus(){
- const count=['A','B','C'].filter(k=>!!yMarks[k]).length;
- const parts=['A','B','C'].map(k=>k+': '+(yMarks[k]?'marcado':'pendente'));
+ const letters=['A','B','C'];
+ const count=letters.filter(k=>!!yMarks[k]).length;
+ const parts=letters.map(k=>k+': '+(yMarks[k]?'marcado':'pendente'));
  $('yMarkStatus').textContent=count+' de 3 referências marcadas · '+parts.join(' · ');
+ const panel=$('yGeometry');
+ if(!panel)return;
+ panel.replaceChildren();
+ if(!wheelArea){
+  const note=document.createElement('div');note.className='yGeometryNote';
+  note.textContent='Marque primeiro a área oval da roleta para calcular ângulos e distâncias.';
+  panel.appendChild(note);return;
+ }
+ if(count<3){
+  const note=document.createElement('div');note.className='yGeometryNote';
+  note.textContent='Geometria parcial: marque '+letters.filter(k=>!yMarks[k]).join(', ')+' para comparar as três referências.';
+  panel.appendChild(note);return;
+ }
+ const rotation=Number(wheelArea.rotation||0),co=Math.cos(rotation),si=Math.sin(rotation);
+ letters.forEach(k=>{
+  const p=yMarks[k],dx=p.x-wheelArea.cx,dy=p.y-wheelArea.cy;
+  const u=(dx*co+dy*si)/Math.max(0.000001,wheelArea.rx);
+  const v=(-dx*si+dy*co)/Math.max(0.000001,wheelArea.ry);
+  const radius=Math.hypot(u,v);
+  const angle=(Math.atan2(u,-v)*180/Math.PI+360)%360;
+  const item=document.createElement('div');item.className='yGeometryItem';
+  const heading=document.createElement('b');heading.textContent=k+' · '+angle.toFixed(1)+'°';
+  const detail=document.createElement('small');detail.textContent=(radius*100).toFixed(0)+'% do raio elíptico';
+  item.append(heading,detail);panel.appendChild(item);
+ });
+ const note=document.createElement('div');note.className='yGeometryNote';
+ note.textContent='Ângulo no sentido horário a partir do topo do oval. A linha de cada ponto parte do centro marcado; valores são referências geométricas, não detecção automática.';
+ panel.appendChild(note);
 }
 function setYMark(letter,p){
  yMarks[letter]={x:p.x,y:p.y};
@@ -359,7 +409,7 @@ function setWheelArea(a){
  wheelArea=a;
  try{localStorage.setItem('roulette-wheel-area-v1',JSON.stringify(wheelArea));}catch(e){}
  $('wheelAreaStatus').textContent='Área marcada · centro '+(a.cx*100).toFixed(1)+'% / '+(a.cy*100).toFixed(1)+'%';
- drawWheelMark();
+ renderYMarkStatus();drawWheelMark();
 }
 function nudgeWheelArea(dx,dy){
  if(!wheelArea){$('wheelAreaStatus').textContent='Marque a roleta primeiro para depois ajustar a posição.';return;}
